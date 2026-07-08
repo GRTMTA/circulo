@@ -33,6 +33,7 @@ export interface DashboardMember {
   profileId: string | null;
   displayName: string;
   walletAddress: string;
+  avatarUrl: string | null;
   role: DashboardRole;
   inviteStatus: "invited" | "accepted" | "declined" | "expired";
   agreementStatus: "accepted" | "pending";

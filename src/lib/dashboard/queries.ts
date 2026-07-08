@@ -127,6 +127,7 @@ function mapMember(row: MemberRow): DashboardMember {
     profileId: row.profile_id,
     displayName: row.display_name,
     walletAddress: row.wallet_address,
+    avatarUrl: null,
     role: row.role,
     inviteStatus: row.invite_status,
     agreementStatus: row.agreement_status,

@@ -4,7 +4,6 @@ import { CycleCalendarView } from "@/components/calendar/cycle-calendar-view";
 import { CycleTimelineView } from "@/components/calendar/cycle-timeline-view";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { getCircleDTO } from "@/lib/dashboard/queries";
-import { createMockCalendarEvents } from "@/lib/mocks";
 
 export default async function CalendarPage({
   params,
@@ -27,15 +26,19 @@ export default async function CalendarPage({
       ]}
     >
       <CycleCalendarView
-        events={createMockCalendarEvents(circleId, data.rounds, data.payouts, data.contributions)}
-      />
-      <CycleTimelineView
         rounds={data.rounds}
         payouts={data.payouts}
         contributions={data.contributions}
         members={data.members}
       />
+      <div className="mt-6">
+        <CycleTimelineView
+          rounds={data.rounds}
+          payouts={data.payouts}
+          contributions={data.contributions}
+          members={data.members}
+        />
+      </div>
     </DashboardShell>
   );
 }
-

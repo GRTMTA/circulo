@@ -3,6 +3,8 @@
 import {
   CalendarDays,
   ClipboardCheck,
+  FileClock,
+  LayoutDashboard,
   LockKeyhole,
   LucideIcon,
   PiggyBank,
@@ -13,20 +15,10 @@ import {
   WalletCards,
 } from "lucide-react";
 
-import { AuditEventCard } from "@/components/audit/audit-event-card";
-import { AuditExportButton } from "@/components/audit/audit-export-button";
-import { AuditFilterBar } from "@/components/audit/audit-filter-bar";
-import { CycleCalendarView } from "@/components/calendar/cycle-calendar-view";
-import { CircleStatusBanner } from "@/components/emergency/circle-status-banner";
-import { EmergencyControls } from "@/components/emergency/emergency-controls";
-import { PayoutExecutionCard } from "@/components/payout/payout-execution-card";
-import { PayoutOrderEditor } from "@/components/payout/payout-order-editor";
-import { PayoutOrderLocked } from "@/components/payout/payout-order-locked";
-import { ProtectionRulesPanel } from "@/components/protection/protection-rules-panel";
-import { ContributionReminderBanner } from "@/components/reminders/contribution-reminder-banner";
-import { ReminderSettingsPanel } from "@/components/reminders/reminder-settings-panel";
-import { WalletPayButton } from "@/components/wallet/wallet-pay-button";
+import { AppShell, type AppShellNavigationGroup } from "@/components/dashboard/app-shell";
+import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +28,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Progress,
   ProgressLabel,
@@ -54,17 +47,42 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import { CalendarExportButton } from "@/components/calendar/calendar-export-button";
+import { CycleCalendarView } from "@/components/calendar/cycle-calendar-view";
 import type {
-  CircleEnrichedDTO,
   CreatorDashboardDTO,
   DashboardAuditEvent,
   DashboardContribution,
+  DashboardDTO,
   DashboardMember,
   DashboardPayout,
   DashboardRound,
   MemberDashboardDTO,
 } from "@/lib/dashboard/types";
-import { createMockCalendarEvents, mockAuditEventTypes } from "@/lib/mocks";
+
+const creatorNavigation: AppShellNavigationGroup[] = [
+  {
+    heading: "Pool creator",
+    items: [
+      { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, match: "exact" },
+      { label: "Members", href: "/dashboard#members", icon: UsersRound },
+      { label: "Contributions", href: "/dashboard#contributions", icon: PiggyBank },
+      { label: "Audit Log", href: "/dashboard#audit", icon: FileClock },
+    ],
+  },
+];
+
+const memberNavigation: AppShellNavigationGroup[] = [
+  {
+    heading: "Pool member",
+    items: [
+      { label: "My Status", href: "/dashboard", icon: LayoutDashboard, match: "exact" },
+      { label: "Pay", href: "/dashboard#pay", icon: WalletCards },
+      { label: "Timeline", href: "/dashboard#timeline", icon: CalendarDays },
+      { label: "Rules", href: "/dashboard#rules", icon: ShieldCheck },
+    ],
+  },
+];
 
 export function titleCase(value: string) {
   return value
@@ -102,7 +120,7 @@ export function shortenWallet(wallet: string) {
   return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
 }
 
-export function getStatusVariant(status: string): "default" | "secondary" | "outline" | "destructive" {
+function getStatusVariant(status: string): "default" | "secondary" | "outline" | "destructive" {
   if (["late", "missed", "disputed", "cancelled", "fully_slashed", "restricted"].includes(status)) {
     return "destructive";
   }
@@ -183,6 +201,40 @@ export function getMemberName(members: DashboardMember[], memberId: string | nul
   return members.find((member) => member.id === memberId)?.displayName ?? "Unknown member";
 }
 
+function getMemberObject(members: DashboardMember[], memberId: string | null) {
+  if (!memberId) return null;
+  return members.find((member) => member.id === memberId) ?? null;
+}
+
+function MemberAvatar({
+  member,
+  className = "size-6",
+}: {
+  member: DashboardMember | null;
+  className?: string;
+}) {
+  if (!member) {
+    return (
+      <Avatar className={className}>
+        <AvatarFallback>?</AvatarFallback>
+      </Avatar>
+    );
+  }
+  return (
+    <Avatar className={className}>
+      <AvatarImage src={member.avatarUrl ?? undefined} alt={member.displayName} />
+      <AvatarFallback>
+        {member.displayName
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((part) => part[0]?.toUpperCase() ?? "")
+          .join("")}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
 export function getProgress(current: number, total: number) {
   if (total <= 0) return 0;
   return Math.min(100, Math.round((current / total) * 100));
@@ -206,7 +258,12 @@ export function MemberTable({ members }: { members: DashboardMember[] }) {
       <TableBody>
         {members.map((member) => (
           <TableRow key={member.id}>
-            <TableCell className="font-semibold">{member.displayName}</TableCell>
+            <TableCell>
+              <div className="flex items-center gap-3">
+                <MemberAvatar member={member} className="size-8" />
+                <span className="font-semibold">{member.displayName}</span>
+              </div>
+            </TableCell>
             <TableCell className="font-mono text-sm">{shortenWallet(member.walletAddress)}</TableCell>
             <TableCell><StatusBadge status={member.inviteStatus} /></TableCell>
             <TableCell><StatusBadge status={member.agreementStatus} /></TableCell>
@@ -244,8 +301,13 @@ export function ContributionTable({
       <TableBody>
         {contributions.map((contribution) => (
           <TableRow key={contribution.id}>
-            <TableCell className="font-semibold">
-              {getMemberName(members, contribution.memberId)}
+            <TableCell>
+              <div className="flex items-center gap-3">
+                <MemberAvatar member={getMemberObject(members, contribution.memberId)} className="size-8" />
+                <span className="font-semibold">
+                  {getMemberName(members, contribution.memberId)}
+                </span>
+              </div>
             </TableCell>
             <TableCell>{formatAmount(contribution.amountDue, asset)}</TableCell>
             <TableCell><StatusBadge status={contribution.status} /></TableCell>
@@ -274,9 +336,10 @@ export function PayoutTimeline({
           key={payout.id}
           className="grid gap-3 rounded-xl border border-border bg-white p-4 sm:grid-cols-[auto_1fr_auto]"
         >
-          <div className="flex size-11 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary">
-            {payout.roundNumber}
-          </div>
+          <MemberAvatar
+            member={getMemberObject(members, payout.recipientMemberId)}
+            className="size-11"
+          />
           <div>
             <p className="font-semibold">{getMemberName(members, payout.recipientMemberId)}</p>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -297,7 +360,7 @@ export function PayoutTimeline({
   );
 }
 
-export function AuditList({
+function AuditList({
   events,
   members,
 }: {
@@ -311,11 +374,16 @@ export function AuditList({
   return (
     <div className="grid gap-3">
       {events.map((event) => (
-        <div key={event.id} className="rounded-xl border border-border bg-white p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="font-semibold">{titleCase(event.eventType)}</p>
-            <span className="text-sm text-muted-foreground">{formatDate(event.createdAt)}</span>
-          </div>
+          <div key={event.id} className="rounded-xl border border-border bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {event.memberId ? (
+                  <MemberAvatar member={getMemberObject(members, event.memberId)} className="size-7" />
+                ) : null}
+                <p className="font-semibold">{titleCase(event.eventType)}</p>
+              </div>
+              <span className="text-sm text-muted-foreground">{formatDate(event.createdAt)}</span>
+            </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {event.memberId ? getMemberName(members, event.memberId) : "Circle event"}
             {event.roundNumber ? `, round ${event.roundNumber}` : ""}
@@ -327,7 +395,7 @@ export function AuditList({
   );
 }
 
-export function CreatorDashboard({ data }: { data: CreatorDashboardDTO }) {
+function CreatorDashboard({ data }: { data: CreatorDashboardDTO }) {
   const currentRound = getCurrentRound(data.rounds, data.circle.currentRound);
   const postedCollateral = data.members.filter((member) => member.collateralStatus === "posted").length;
   const acceptedMembers = data.members.filter((member) => member.inviteStatus === "accepted").length;
@@ -362,8 +430,6 @@ export function CreatorDashboard({ data }: { data: CreatorDashboardDTO }) {
       </TabsList>
 
       <TabsContent value="overview" className="grid gap-6">
-        {data.circle.status === "disputed" ? <CircleStatusBanner status="disputed" /> : null}
-        {data.circle.status === "cancelled" ? <CircleStatusBanner status="cancelled" /> : null}
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <StatCard label="Pool Status" value={titleCase(data.circle.status)} icon={ShieldCheck} />
           <StatCard label="Collateral Posted" value={`${postedCollateral} / ${data.members.length}`} icon={LockKeyhole} />
@@ -434,63 +500,37 @@ export function CreatorDashboard({ data }: { data: CreatorDashboardDTO }) {
 
       <TabsContent value="payouts">
         <SectionCard title="Payout Order" description="Once active, payout order cannot be changed.">
-          <div className="grid gap-5">
-            {data.circle.payoutOrderLocked ? (
-              <PayoutOrderLocked payouts={data.payouts} members={data.members} />
-            ) : (
-              <PayoutOrderEditor members={data.members} locked={data.circle.payoutOrderLocked} />
-            )}
-            {data.payouts[0] ? (
-              <PayoutExecutionCard
-                payout={data.payouts[0]}
-                recipientName={getMemberName(data.members, data.payouts[0].recipientMemberId)}
-                status={data.payouts[0].status}
-              />
-            ) : null}
-          </div>
+          <PayoutTimeline payouts={data.payouts} members={data.members} />
         </SectionCard>
       </TabsContent>
 
       <TabsContent value="calendar">
         <SectionCard title="Cycle Calendar" description="Contribution due dates, payout dates, grace windows, and status markers.">
-          <CycleCalendarView events={createMockCalendarEvents(data.circle.id, data.rounds, data.payouts, data.contributions)} />
+          <div className="mb-4 flex justify-end">
+            <CalendarExportButton events={[]} circleName={data.circle.name} />
+          </div>
+          <CycleCalendarView
+            rounds={data.rounds}
+            payouts={data.payouts}
+            contributions={data.contributions}
+            members={data.members}
+          />
         </SectionCard>
       </TabsContent>
 
       <TabsContent value="defaults">
         <SectionCard title="Default Protection" description="Grace period, warning, auto-slash, and restriction flow.">
-          <ProtectionRulesPanel
-            protection={{
-              gracePeriodHours: 4,
-              slashPercentage: 100,
-              warningThreshold: 2,
-              members: data.members.map((member) => ({
-                name: member.displayName,
-                status: member.restrictionStatus,
-                lateCount: member.paymentStatus === "late" || member.paymentStatus === "missed" ? 1 : 0,
-              })),
-            }}
-          />
+          <div className="grid gap-3 md:grid-cols-2">
+            {["Grace Period Active", "Auto-Slash Pending", "Collateral Slashed", "Injected Into Pool", "Member Restricted"].map((label) => (
+              <div key={label} className="rounded-xl border border-border bg-white p-4 font-semibold">{label}</div>
+            ))}
+          </div>
         </SectionCard>
       </TabsContent>
 
       <TabsContent value="audit">
         <SectionCard title="Audit Log" description="Readable activity history for circle actions and on-chain events.">
-          <div className="grid gap-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <AuditFilterBar eventTypes={mockAuditEventTypes} members={data.members} />
-              <AuditExportButton events={data.auditEvents} members={data.members} />
-            </div>
-            <div className="grid gap-3">
-              {data.auditEvents.map((event) => (
-                <AuditEventCard
-                  key={event.id}
-                  event={event}
-                  memberName={event.memberId ? getMemberName(data.members, event.memberId) : "Circle event"}
-                />
-              ))}
-            </div>
-          </div>
+          <AuditList events={data.auditEvents} members={data.members} />
         </SectionCard>
       </TabsContent>
 
@@ -502,16 +542,13 @@ export function CreatorDashboard({ data }: { data: CreatorDashboardDTO }) {
             <StatCard label="Collateral" value={formatAmount(data.circle.collateralAmount, data.circle.contributionAsset)} icon={LockKeyhole} />
             <StatCard label="Settings" value={data.circle.settingsLocked ? "Locked" : "Draft editable"} icon={Settings} />
           </div>
-          <div className="mt-5">
-            <EmergencyControls circleName={data.circle.name} />
-          </div>
         </SectionCard>
       </TabsContent>
     </Tabs>
   );
 }
 
-export function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
+function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
   const currentRound = getCurrentRound(data.rounds, data.circle.currentRound);
   const myContribution = data.contributions.find(
     (contribution) =>
@@ -551,19 +588,16 @@ export function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
 
       <TabsContent value="pay">
         <SectionCard title="Pay Contribution" description="Use wallet payment and on-chain verification as the main flow.">
-          <div className="grid gap-4">
-            <ContributionReminderBanner
-              amount={myContribution?.amountDue ?? data.circle.contributionAmount}
-              asset={data.circle.contributionAsset}
-              dueAt={currentRound?.dueAt ?? new Date().toISOString()}
-              urgency={myContribution?.status === "late" ? "overdue" : "due_soon"}
-            />
-            <WalletPayButton
-              amount={myContribution?.amountDue ?? data.circle.contributionAmount}
-              asset={data.circle.contributionAsset}
-              dueDate={currentRound?.dueAt ?? new Date().toISOString()}
-              status={myContribution?.status === "paid" ? "paid" : "idle"}
-            />
+          <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
+            <div>
+              <p className="text-3xl font-semibold">{formatAmount(myContribution?.amountDue ?? data.circle.contributionAmount, data.circle.contributionAsset)}</p>
+              <p className="mt-2 text-muted-foreground">Due {formatDate(currentRound?.dueAt ?? null)}</p>
+              <div className="mt-4"><StatusBadge status={myContribution?.status ?? "not_due"} /></div>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Button>Pay {formatAmount(data.circle.contributionAmount, data.circle.contributionAsset)}</Button>
+              <Button variant="outline">View transaction</Button>
+            </div>
           </div>
         </SectionCard>
       </TabsContent>
@@ -612,10 +646,8 @@ export function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
 
       <TabsContent value="notifications">
         <SectionCard title="Notifications" description="Member-facing status updates and action reminders.">
-          <div className="grid gap-5">
-            <ReminderSettingsPanel />
-            {data.notifications.length > 0 ? (
-              <div className="grid gap-3">
+          {data.notifications.length > 0 ? (
+            <div className="grid gap-3">
               {data.notifications.map((notification) => (
                 <div key={notification.id} className="rounded-xl border border-border bg-white p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -625,21 +657,68 @@ export function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">{notification.body}</p>
                 </div>
               ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No notifications yet.</p>
-            )}
-          </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No notifications yet.</p>
+          )}
         </SectionCard>
       </TabsContent>
     </Tabs>
   );
 }
 
-export function DashboardViews({ data }: { data: CircleEnrichedDTO }) {
-  return data.role === "creator" ? (
-    <CreatorDashboard data={data} />
-  ) : (
-    <MemberDashboard data={data} />
+function DashboardEmptyState({ configured }: { configured: boolean }) {
+  return (
+    <EmptyState
+      icon={<UsersRound className="size-8" />}
+      title={configured ? "No circle dashboard yet" : "Supabase is not configured"}
+      description={
+        configured
+          ? "Once you create or accept an invite-only pool, your creator or member dashboard will appear here."
+          : "Add Supabase environment variables to load authenticated circle dashboards."
+      }
+      actions={<Button disabled>Circle setup comes next</Button>}
+    />
+  );
+}
+
+export function DashboardViews({ data }: { data: DashboardDTO }) {
+  const navigation = data.role === "member" ? memberNavigation : creatorNavigation;
+  const title =
+    data.role === "empty"
+      ? "Circulo"
+      : data.role === "creator"
+        ? "Creator dashboard"
+        : "Member dashboard";
+
+  return (
+    <AppShell
+      navigation={navigation}
+      brand={{
+        title: "Circulo",
+        href: "/dashboard",
+        full: <span className="font-heading text-xl">Circulo</span>,
+        compact: <span className="font-heading text-lg">C</span>,
+      }}
+      notificationCount={data.role === "member" ? data.notifications.length : undefined}
+    >
+      <DashboardShell
+        title={title}
+        description={
+          data.role === "empty"
+            ? "Invite-only rotating savings circles will appear here after setup or acceptance."
+            : `${data.circle.name} keeps the fixed roster, contribution rules, and payout order visible.`
+        }
+        breadcrumbItems={[]}
+      >
+        {data.role === "creator" ? (
+          <CreatorDashboard data={data} />
+        ) : data.role === "member" ? (
+          <MemberDashboard data={data} />
+        ) : (
+          <DashboardEmptyState configured={data.configured} />
+        )}
+      </DashboardShell>
+    </AppShell>
   );
 }
