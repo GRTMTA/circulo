@@ -1,25 +1,109 @@
 @import "tailwindcss";
+@import "@metamask/design-tokens/styles.css";
+
+@custom-variant dark (&:is(.dark *, [data-theme=dark] *));
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: var(--color-background-default);
+  --foreground: var(--color-text-default);
+  --card: var(--color-background-default);
+  --card-foreground: var(--color-text-default);
+  --popover: var(--color-background-default);
+  --popover-foreground: var(--color-text-default);
+  --primary: var(--color-primary-default);
+  --primary-foreground: var(--color-primary-inverse);
+  --secondary: var(--color-background-section);
+  --secondary-foreground: var(--color-text-default);
+  --muted: var(--color-background-muted);
+  --muted-foreground: var(--color-text-alternative);
+  --accent: var(--color-background-muted);
+  --accent-foreground: var(--color-text-default);
+  --destructive: var(--color-error-default);
+  --border: var(--color-border-default);
+  --input: var(--color-border-muted);
+  --ring: var(--color-primary-default);
+  --radius: 1rem;
+  --sidebar: var(--color-background-default);
+  --sidebar-foreground: var(--color-text-default);
+  --sidebar-primary: var(--color-primary-default);
+  --sidebar-primary-foreground: var(--color-primary-inverse);
+  --sidebar-accent: var(--color-background-muted);
+  --sidebar-accent-foreground: var(--color-text-default);
+  --sidebar-border: var(--color-border-muted);
+  --sidebar-ring: var(--color-primary-default);
+  --chart-1: var(--color-primary-default);
+  --chart-2: var(--color-success-default);
+  --chart-3: var(--color-warning-default);
+  --chart-4: var(--color-error-default);
+  --chart-5: var(--color-accent04-normal);
+
+  --color-text-primary: var(--color-text-default);
+  --color-text-secondary: var(--color-text-alternative);
+  --color-border-default-strong: var(--color-border-default);
+  --color-primary-light: var(--brand-colors-blue-blue200);
+  --color-primary-lighter: var(--color-primary-muted);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    @apply font-sans;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    background-image:
+      radial-gradient(circle at top, color-mix(in srgb, var(--color-primary-muted) 70%, transparent) 0, transparent 42%),
+      linear-gradient(180deg, var(--color-background-default), var(--color-background-section));
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-primary-default) 20%, transparent);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
+@layer utilities {
+  .surface-glass {
+    background: color-mix(in srgb, var(--color-background-default) 88%, transparent);
+    backdrop-filter: blur(16px);
+  }
 }
