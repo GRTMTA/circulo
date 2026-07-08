@@ -43,11 +43,39 @@ export const mockPayouts: DashboardPayout[] = [
   },
 ];
 
+const memberIds = [
+  "member-creator",
+  "member-b",
+  "member-c",
+  "member-d",
+  "member-e",
+  "member-creator",
+  "member-b",
+];
+
 export function createMockPayouts(
   overrides: Partial<DashboardPayout>[] = []
 ): DashboardPayout[] {
   return mockPayouts.map((payout, index) => ({
     ...payout,
     ...overrides[index],
+  }));
+}
+
+export function createMockPayoutsForCircle(roundCount: number): DashboardPayout[] {
+  return Array.from({ length: roundCount }, (_, index) => ({
+    id: `payout-${index + 1}`,
+    roundNumber: index + 1,
+    recipientMemberId: memberIds[index % memberIds.length],
+    expectedPayoutAt: `2026-07-${String(8 + index).padStart(2, "0")}T16:00:00.000Z`,
+    status:
+      index === 0
+        ? "paid"
+        : index === 1
+          ? "ready"
+          : index === roundCount - 1
+            ? "disputed"
+            : "scheduled",
+    txHash: index === 0 ? "tx_payout_91a2" : null,
   }));
 }

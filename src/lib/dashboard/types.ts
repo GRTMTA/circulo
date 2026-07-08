@@ -107,6 +107,23 @@ export interface DashboardNotification {
   createdAt: string;
 }
 
+export interface CircleListItem {
+  id: string;
+  name: string;
+  status: CircleStatus;
+  role: DashboardRole;
+  contributionAmount: number;
+  contributionAsset: string;
+  memberCount: number;
+  currentRound: number;
+  totalRounds: number;
+  nextDueAt: string | null;
+  myPaymentStatus?: DashboardMember["paymentStatus"] | DashboardContribution["status"];
+  myPayoutRound?: number;
+}
+
+export type CirclesDTO = CircleListItem[];
+
 export interface CreatorDashboardDTO {
   role: "creator";
   circle: DashboardCircle;
@@ -128,6 +145,8 @@ export interface MemberDashboardDTO {
   auditEvents: DashboardAuditEvent[];
   notifications: DashboardNotification[];
 }
+
+export type CircleEnrichedDTO = CreatorDashboardDTO | MemberDashboardDTO;
 
 export type DashboardDTO =
   | CreatorDashboardDTO
