@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { ArrowLeft, Settings } from "lucide-react";
 import { dashboardStats, upcomingCycle } from "@/lib/circulo";
+import { requireAuthenticatedUser } from "@/lib/auth";
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  await requireAuthenticatedUser("/dashboard");
+
   return (
     <main className="min-h-screen bg-[#f8f7f2] text-[#17140f]">
       <div className="mx-auto max-w-7xl px-6 py-8">

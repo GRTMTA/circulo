@@ -13,3 +13,17 @@ export function getPublicEnv() {
       process.env.NEXT_PUBLIC_STABLECOIN_ASSET ?? "USDC:testnet-placeholder",
   };
 }
+
+export const env = getPublicEnv();
+
+export function getIsSupabaseConfigured() {
+  return Boolean(env.supabaseUrl && env.supabasePublishableKey);
+}
+
+export function assertSupabaseConfig() {
+  if (!getIsSupabaseConfigured()) {
+    throw new Error(
+      "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY."
+    );
+  }
+}
