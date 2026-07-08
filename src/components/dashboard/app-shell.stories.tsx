@@ -11,6 +11,7 @@ import {
 import { AppShell, type AppShellNavigationGroup } from "@/components/dashboard/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { createCirclesListMock } from "@/lib/mocks";
 
 const navigation: AppShellNavigationGroup[] = [
   {
@@ -94,5 +95,17 @@ export const WithHeaderActions: Story = {
         Invite member
       </Button>
     ),
+  },
+};
+
+export const WithCircleSwitcher: Story = {
+  args: {
+    circles: createCirclesListMock(),
+  },
+};
+
+export const ManyCircles: Story = {
+  args: {
+    circles: createCirclesListMock(12),
   },
 };
