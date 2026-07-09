@@ -14,6 +14,9 @@ export const mockMembers: DashboardMember[] = [
     paymentStatus: "paid",
     payoutRound: 1,
     restrictionStatus: "clear",
+    lateCount: 0,
+    slashedAmount: 0,
+    joinedAt: "2026-07-08T10:05:00.000Z",
   },
   {
     id: "member-b",
@@ -28,6 +31,9 @@ export const mockMembers: DashboardMember[] = [
     paymentStatus: "pending",
     payoutRound: 2,
     restrictionStatus: "clear",
+    lateCount: 0,
+    slashedAmount: 0,
+    joinedAt: "2026-07-08T10:15:00.000Z",
   },
   {
     id: "member-c",
@@ -42,6 +48,9 @@ export const mockMembers: DashboardMember[] = [
     paymentStatus: "late",
     payoutRound: 3,
     restrictionStatus: "warning",
+    lateCount: 1,
+    slashedAmount: 2.5,
+    joinedAt: "2026-07-08T10:20:00.000Z",
   },
   {
     id: "member-d",
@@ -56,6 +65,9 @@ export const mockMembers: DashboardMember[] = [
     paymentStatus: "not_due",
     payoutRound: 4,
     restrictionStatus: "clear",
+    lateCount: 0,
+    slashedAmount: 0,
+    joinedAt: null,
   },
   {
     id: "member-e",
@@ -70,6 +82,9 @@ export const mockMembers: DashboardMember[] = [
     paymentStatus: "missed",
     payoutRound: 5,
     restrictionStatus: "restricted",
+    lateCount: 2,
+    slashedAmount: 5,
+    joinedAt: null,
   },
 ];
 

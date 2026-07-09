@@ -25,6 +25,7 @@ export * from "@/lib/mocks/emergency";
 export * from "@/lib/mocks/members";
 export * from "@/lib/mocks/payouts";
 export * from "@/lib/mocks/protection";
+export * from "@/lib/mocks/scenarios";
 export * from "@/lib/mocks/wallet";
 
 export function createCreatorDashboardMock(

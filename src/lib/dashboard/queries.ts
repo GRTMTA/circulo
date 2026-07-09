@@ -28,13 +28,61 @@ interface CircleRow {
   contribution_asset: string;
   interval_seconds: number;
   member_count: number;
+  max_member_count?: number;
   collateral_amount: number | string;
+  grace_period_hours?: number;
+  slash_percentage?: number;
+  warning_threshold?: number;
+  auto_slash_enabled?: boolean;
+  payout_order_mode?: "creator" | "voting";
+  reminder_schedule_hours?: number[];
   current_round: number;
   total_rounds: number;
   start_date: string | null;
   settings_locked: boolean;
   payout_order_locked: boolean;
   rules_locked: boolean;
+}
+
+interface MemberRow {
+  id: string;
+  profile_id: string | null;
+  display_name: string;
+  wallet_address: string;
+  role: "creator" | "member";
+  invite_status: DashboardMember["inviteStatus"];
+  agreement_status: DashboardMember["agreementStatus"];
+  collateral_status: DashboardMember["collateralStatus"];
+  payment_status: DashboardMember["paymentStatus"];
+  payout_round: number;
+  restriction_status: DashboardMember["restrictionStatus"];
+  late_count?: number;
+  slashed_amount?: number | string;
+  joined_at?: string | null;
+}
+
+interface ContributionRow {
+  id: string;
+  round_id: string;
+  member_id: string;
+  amount_due: number | string;
+  status: DashboardContribution["status"];
+  tx_hash: string | null;
+  paid_at: string | null;
+  slashed_amount?: number | string;
+  slashed_at?: string | null;
+  reminders_sent?: number;
+}
+
+interface PayoutRow {
+  id: string;
+  round_number: number;
+  recipient_member_id: string | null;
+  payout_amount?: number | string;
+  expected_payout_at: string | null;
+  withheld_amount?: number | string;
+  status: DashboardPayout["status"];
+  tx_hash: string | null;
 }
 
 interface MemberRow {
@@ -111,7 +159,14 @@ function mapCircle(row: CircleRow): DashboardCircle {
     contributionAsset: row.contribution_asset,
     intervalSeconds: row.interval_seconds,
     memberCount: row.member_count,
+    maxMemberCount: row.max_member_count ?? 20,
     collateralAmount: toNumber(row.collateral_amount),
+    gracePeriodHours: row.grace_period_hours ?? 4,
+    slashPercentage: row.slash_percentage ?? 100,
+    warningThreshold: row.warning_threshold ?? 2,
+    autoSlashEnabled: row.auto_slash_enabled ?? true,
+    payoutOrderMode: row.payout_order_mode ?? "creator",
+    reminderScheduleHours: row.reminder_schedule_hours ?? [24, 1],
     currentRound: row.current_round,
     totalRounds: row.total_rounds,
     startDate: row.start_date,
@@ -135,6 +190,9 @@ function mapMember(row: MemberRow): DashboardMember {
     paymentStatus: row.payment_status,
     payoutRound: row.payout_round,
     restrictionStatus: row.restriction_status,
+    lateCount: row.late_count ?? 0,
+    slashedAmount: row.slashed_amount ? toNumber(row.slashed_amount) : 0,
+    joinedAt: row.joined_at ?? null,
   };
 }
 
@@ -159,6 +217,9 @@ function mapContribution(row: ContributionRow): DashboardContribution {
     status: row.status,
     txHash: row.tx_hash,
     paidAt: row.paid_at,
+    slashedAmount: row.slashed_amount ? toNumber(row.slashed_amount) : 0,
+    slashedAt: row.slashed_at ?? null,
+    remindersSent: row.reminders_sent ?? 0,
   };
 }
 
@@ -167,7 +228,9 @@ function mapPayout(row: PayoutRow): DashboardPayout {
     id: row.id,
     roundNumber: row.round_number,
     recipientMemberId: row.recipient_member_id,
+    payoutAmount: row.payout_amount ? toNumber(row.payout_amount) : 0,
     expectedPayoutAt: row.expected_payout_at,
+    withheldAmount: row.withheld_amount ? toNumber(row.withheld_amount) : 0,
     status: row.status,
     txHash: row.tx_hash,
   };

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   CalendarDays,
   ClipboardCheck,
@@ -13,6 +14,9 @@ import {
   ShieldCheck,
   UsersRound,
   WalletCards,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 
 import { AppShell, type AppShellNavigationGroup } from "@/components/dashboard/app-shell";
@@ -47,6 +51,8 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import type { FilterOption, FilterSpec } from "@/components/ui/table-filter-bar";
+import { TableFilterBar } from "@/components/ui/table-filter-bar";
 import { CalendarExportButton } from "@/components/calendar/calendar-export-button";
 import { CycleCalendarView } from "@/components/calendar/cycle-calendar-view";
 import type {
@@ -136,8 +142,29 @@ function getStatusVariant(status: string): "default" | "secondary" | "outline" |
   return "outline";
 }
 
+function getStatusColor(status: string): string {
+  if (["paid", "posted", "accepted", "completed", "ready"].includes(status)) {
+    return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  }
+  if (status === "active" || status === "verifying") {
+    return "bg-blue-50 text-blue-700 border-blue-200";
+  }
+  if (["pending", "draft", "scheduled", "not_due", "delayed", "warning", "invited", "due_soon", "due_now", "grace_period"].includes(status)) {
+    return "bg-amber-50 text-amber-700 border-amber-200";
+  }
+  if (["late", "missed", "disputed", "cancelled", "fully_slashed", "restricted"].includes(status)) {
+    return "bg-red-50 text-red-700 border-red-200";
+  }
+  return "bg-gray-50 text-gray-600 border-gray-200";
+}
+
 export function StatusBadge({ status }: { status: string }) {
-  return <Badge variant={getStatusVariant(status)}>{titleCase(status)}</Badge>;
+  const variant = getStatusVariant(status);
+  return (
+    <Badge variant={variant === "destructive" ? "destructive" : "outline"} className={getStatusColor(status)}>
+      {titleCase(status)}
+    </Badge>
+  );
 }
 
 export function StatCard({
@@ -240,41 +267,195 @@ export function getProgress(current: number, total: number) {
   return Math.min(100, Math.round((current / total) * 100));
 }
 
-export function MemberTable({ members }: { members: DashboardMember[] }) {
+type SortDirection = "asc" | "desc" | null;
+type SortConfig = { key: string; direction: SortDirection };
+
+function useSort(defaultKey: string): [SortConfig, (key: string) => void, <T>(items: T[], extractor: (item: T) => string | number) => T[]] {
+  const [sort, setSort] = useState<SortConfig>({ key: defaultKey, direction: "asc" });
+
+  const toggleSort = (key: string) => {
+    setSort((prev) => {
+      if (prev.key === key) {
+        const next: SortDirection = prev.direction === "asc" ? "desc" : prev.direction === "desc" ? null : "asc";
+        return { key, direction: next };
+      }
+      return { key, direction: "asc" };
+    });
+  };
+
+  const sortFn = <T,>(items: T[], extractor: (item: T) => string | number): T[] => {
+    if (!sort.direction) return items;
+    return [...items].sort((a, b) => {
+      const va = extractor(a);
+      const vb = extractor(b);
+      const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+      return sort.direction === "asc" ? cmp : -cmp;
+    });
+  };
+
+  return [sort, toggleSort, sortFn];
+}
+
+function SortHeader({
+  label,
+  sortKey,
+  sort,
+  onToggle,
+}: {
+  label: string;
+  sortKey: string;
+  sort: SortConfig;
+  onToggle: (key: string) => void;
+}) {
+  const isActive = sort.key === sortKey && sort.direction !== null;
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Member</TableHead>
-          <TableHead>Wallet</TableHead>
-          <TableHead>Invite</TableHead>
-          <TableHead>Agreement</TableHead>
-          <TableHead>Collateral</TableHead>
-          <TableHead>Contribution</TableHead>
-          <TableHead>Payout</TableHead>
-          <TableHead>Restriction</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {members.map((member) => (
-          <TableRow key={member.id}>
-            <TableCell>
-              <div className="flex items-center gap-3">
-                <MemberAvatar member={member} className="size-8" />
-                <span className="font-semibold">{member.displayName}</span>
-              </div>
-            </TableCell>
-            <TableCell className="font-mono text-sm">{shortenWallet(member.walletAddress)}</TableCell>
-            <TableCell><StatusBadge status={member.inviteStatus} /></TableCell>
-            <TableCell><StatusBadge status={member.agreementStatus} /></TableCell>
-            <TableCell><StatusBadge status={member.collateralStatus} /></TableCell>
-            <TableCell><StatusBadge status={member.paymentStatus} /></TableCell>
-            <TableCell>Round {member.payoutRound}</TableCell>
-            <TableCell><StatusBadge status={member.restrictionStatus} /></TableCell>
+    <TableHead>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 whitespace-nowrap text-left text-xs font-medium uppercase text-muted-foreground hover:text-foreground"
+        onClick={() => onToggle(sortKey)}
+      >
+        {label}
+        {isActive ? (
+          sort.direction === "asc" ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />
+        ) : (
+          <ArrowUpDown className="size-3 opacity-30" />
+        )}
+      </button>
+    </TableHead>
+  );
+}
+
+export function MemberTable({ members }: { members: DashboardMember[] }) {
+  const [search, setSearch] = useState("");
+  const [filterInvite, setFilterInvite] = useState<string | null>(null);
+  const [filterAgreement, setFilterAgreement] = useState<string | null>(null);
+  const [filterCollateral, setFilterCollateral] = useState<string | null>(null);
+  const [filterPayment, setFilterPayment] = useState<string | null>(null);
+  const [filterRestriction, setFilterRestriction] = useState<string | null>(null);
+  const [sort, toggleSort, sortFn] = useSort("displayName");
+
+  const statusOptions = (statuses: string[]): FilterOption[] =>
+    statuses.map((s) => ({ value: s, label: titleCase(s) }));
+
+  const inviteStatuses = ["accepted", "invited", "declined", "expired"] as const;
+  const agreementStatuses = ["accepted", "pending"] as const;
+  const collateralStatuses = ["not_posted", "posted", "partially_slashed", "fully_slashed"] as const;
+  const paymentStatuses = ["paid", "pending", "late", "missed", "not_due", "disputed"] as const;
+  const restrictionStatuses = ["clear", "warning", "restricted"] as const;
+
+  const filtered = members.filter((m) => {
+    const q = search.toLowerCase();
+    const matchesSearch = !q || m.displayName.toLowerCase().includes(q) || m.walletAddress.toLowerCase().includes(q);
+    const matchesInvite = !filterInvite || m.inviteStatus === filterInvite;
+    const matchesAgreement = !filterAgreement || m.agreementStatus === filterAgreement;
+    const matchesCollateral = !filterCollateral || m.collateralStatus === filterCollateral;
+    const matchesPayment = !filterPayment || m.paymentStatus === filterPayment;
+    const matchesRestriction = !filterRestriction || m.restrictionStatus === filterRestriction;
+    return matchesSearch && matchesInvite && matchesAgreement && matchesCollateral && matchesPayment && matchesRestriction;
+  });
+
+  const sorted = sortFn(filtered, (m) => {
+    switch (sort.key) {
+      case "displayName": return m.displayName;
+      case "walletAddress": return m.walletAddress;
+      case "inviteStatus": return m.inviteStatus;
+      case "agreementStatus": return m.agreementStatus;
+      case "collateralStatus": return m.collateralStatus;
+      case "paymentStatus": return m.paymentStatus;
+      case "payoutRound": return m.payoutRound;
+      case "restrictionStatus": return m.restrictionStatus;
+      default: return m.displayName;
+    }
+  });
+
+  const hasActiveFilters = !!search || !!filterInvite || !!filterAgreement || !!filterCollateral || !!filterPayment || !!filterRestriction;
+
+  const filters: FilterSpec[] = [
+    { id: "invite", label: "Invite", value: filterInvite, options: statusOptions([...inviteStatuses]), onChange: setFilterInvite },
+    { id: "agreement", label: "Agreement", value: filterAgreement, options: statusOptions([...agreementStatuses]), onChange: setFilterAgreement },
+    { id: "collateral", label: "Collateral", value: filterCollateral, options: statusOptions([...collateralStatuses]), onChange: setFilterCollateral },
+    { id: "payment", label: "Contribution", value: filterPayment, options: statusOptions([...paymentStatuses]), onChange: setFilterPayment },
+    { id: "restriction", label: "Restriction", value: filterRestriction, options: statusOptions([...restrictionStatuses]), onChange: setFilterRestriction },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <TableFilterBar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search by name or wallet..."
+        filters={filters}
+        totalCount={members.length}
+        filteredCount={sorted.length}
+        onClearFilters={() => {
+          setSearch("");
+          setFilterInvite(null);
+          setFilterAgreement(null);
+          setFilterCollateral(null);
+          setFilterPayment(null);
+          setFilterRestriction(null);
+        }}
+        hasActiveFilters={hasActiveFilters}
+      />
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <SortHeader label="Member" sortKey="displayName" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Wallet" sortKey="walletAddress" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Invite" sortKey="inviteStatus" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Agreement" sortKey="agreementStatus" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Collateral" sortKey="collateralStatus" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Contribution" sortKey="paymentStatus" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Payout" sortKey="payoutRound" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Restriction" sortKey="restrictionStatus" sort={sort} onToggle={toggleSort} />
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {sorted.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
+                No members match your filters.
+                {hasActiveFilters ? (
+                  <button
+                    type="button"
+                    className="ml-1 font-medium text-primary underline"
+                    onClick={() => {
+                      setSearch("");
+                      setFilterInvite(null);
+                      setFilterAgreement(null);
+                      setFilterCollateral(null);
+                      setFilterPayment(null);
+                      setFilterRestriction(null);
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                ) : null}
+              </TableCell>
+            </TableRow>
+          ) : (
+            sorted.map((member) => (
+              <TableRow key={member.id}>
+                <TableCell>
+                  <div className="flex items-center gap-3">
+                    <MemberAvatar member={member} className="size-8" />
+                    <span className="font-semibold">{member.displayName}</span>
+                  </div>
+                </TableCell>
+                <TableCell className="font-mono text-sm">{shortenWallet(member.walletAddress)}</TableCell>
+                <TableCell><StatusBadge status={member.inviteStatus} /></TableCell>
+                <TableCell><StatusBadge status={member.agreementStatus} /></TableCell>
+                <TableCell><StatusBadge status={member.collateralStatus} /></TableCell>
+                <TableCell><StatusBadge status={member.paymentStatus} /></TableCell>
+                <TableCell>Round {member.payoutRound}</TableCell>
+                <TableCell><StatusBadge status={member.restrictionStatus} /></TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 
@@ -287,38 +468,97 @@ export function ContributionTable({
   members: DashboardMember[];
   asset: string;
 }) {
+  const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
+  const [sort, toggleSort, sortFn] = useSort("memberName");
+
+  const contributionStatuses = ["paid", "pending", "late", "missed", "not_due", "disputed", "due_soon", "due_now", "verifying", "grace_period"] as const;
+
+  const filtered = contributions.filter((c) => {
+    const q = search.toLowerCase();
+    const memberName = getMemberName(members, c.memberId).toLowerCase();
+    const matchesSearch = !q || memberName.includes(q);
+    const matchesStatus = !filterStatus || c.status === filterStatus;
+    return matchesSearch && matchesStatus;
+  });
+
+  const sorted = sortFn(filtered, (c) => {
+    switch (sort.key) {
+      case "memberName": return getMemberName(members, c.memberId);
+      case "amountDue": return c.amountDue;
+      case "status": return c.status;
+      case "paidAt": return c.paidAt ?? "";
+      default: return getMemberName(members, c.memberId);
+    }
+  });
+
+  const hasActiveFilters = !!search || !!filterStatus;
+  const statusOptions: FilterOption[] = contributionStatuses.map((s) => ({ value: s, label: titleCase(s) }));
+  const filters: FilterSpec[] = [
+    { id: "status", label: "Status", value: filterStatus, options: statusOptions, onChange: setFilterStatus },
+  ];
+
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Member</TableHead>
-          <TableHead>Amount Due</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>TX Hash</TableHead>
-          <TableHead>Time Paid</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {contributions.map((contribution) => (
-          <TableRow key={contribution.id}>
-            <TableCell>
-              <div className="flex items-center gap-3">
-                <MemberAvatar member={getMemberObject(members, contribution.memberId)} className="size-8" />
-                <span className="font-semibold">
-                  {getMemberName(members, contribution.memberId)}
-                </span>
-              </div>
-            </TableCell>
-            <TableCell>{formatAmount(contribution.amountDue, asset)}</TableCell>
-            <TableCell><StatusBadge status={contribution.status} /></TableCell>
-            <TableCell className="font-mono text-sm">
-              {contribution.txHash ? shortenWallet(contribution.txHash) : "-"}
-            </TableCell>
-            <TableCell>{formatDate(contribution.paidAt)}</TableCell>
+    <div className="space-y-4">
+      <TableFilterBar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search by member name..."
+        filters={filters}
+        totalCount={contributions.length}
+        filteredCount={sorted.length}
+        onClearFilters={() => { setSearch(""); setFilterStatus(null); }}
+        hasActiveFilters={hasActiveFilters}
+      />
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <SortHeader label="Member" sortKey="memberName" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Amount Due" sortKey="amountDue" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Status" sortKey="status" sort={sort} onToggle={toggleSort} />
+            <TableHead>TX Hash</TableHead>
+            <SortHeader label="Time Paid" sortKey="paidAt" sort={sort} onToggle={toggleSort} />
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {sorted.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                No contributions match your filters.
+                {hasActiveFilters ? (
+                  <button
+                    type="button"
+                    className="ml-1 font-medium text-primary underline"
+                    onClick={() => { setSearch(""); setFilterStatus(null); }}
+                  >
+                    Clear filters
+                  </button>
+                ) : null}
+              </TableCell>
+            </TableRow>
+          ) : (
+            sorted.map((contribution) => (
+              <TableRow key={contribution.id}>
+                <TableCell>
+                  <div className="flex items-center gap-3">
+                    <MemberAvatar member={getMemberObject(members, contribution.memberId)} className="size-8" />
+                    <span className="font-semibold">
+                      {getMemberName(members, contribution.memberId)}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell>{formatAmount(contribution.amountDue, asset)}</TableCell>
+                <TableCell><StatusBadge status={contribution.status} /></TableCell>
+                <TableCell className="font-mono text-sm">
+                  {contribution.txHash ? shortenWallet(contribution.txHash) : "-"}
+                </TableCell>
+                <TableCell>{formatDate(contribution.paidAt)}</TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 

@@ -1,6 +1,7 @@
 export const circleStatuses = [
   "draft",
   "active",
+  "paused",
   "delayed",
   "completed",
   "disputed",
@@ -11,6 +12,8 @@ export type CircleStatus = (typeof circleStatuses)[number];
 
 export type DashboardRole = "creator" | "member";
 
+export type PayoutOrderMode = "creator" | "voting";
+
 export interface DashboardCircle {
   id: string;
   name: string;
@@ -19,7 +22,14 @@ export interface DashboardCircle {
   contributionAsset: string;
   intervalSeconds: number;
   memberCount: number;
+  maxMemberCount: number;
   collateralAmount: number;
+  gracePeriodHours: number;
+  slashPercentage: number;
+  warningThreshold: number;
+  autoSlashEnabled: boolean;
+  payoutOrderMode: PayoutOrderMode;
+  reminderScheduleHours: number[];
   currentRound: number;
   totalRounds: number;
   startDate: string | null;
@@ -41,6 +51,9 @@ export interface DashboardMember {
   paymentStatus: "paid" | "pending" | "late" | "missed" | "not_due" | "disputed";
   payoutRound: number;
   restrictionStatus: "clear" | "warning" | "restricted";
+  lateCount: number;
+  slashedAmount: number;
+  joinedAt: string | null;
 }
 
 export interface DashboardRound {
@@ -79,13 +92,18 @@ export interface DashboardContribution {
     | "disputed";
   txHash: string | null;
   paidAt: string | null;
+  slashedAmount: number;
+  slashedAt: string | null;
+  remindersSent: number;
 }
 
 export interface DashboardPayout {
   id: string;
   roundNumber: number;
   recipientMemberId: string | null;
+  payoutAmount: number;
   expectedPayoutAt: string | null;
+  withheldAmount: number;
   status: "scheduled" | "ready" | "paid" | "delayed" | "disputed";
   txHash: string | null;
 }
@@ -107,6 +125,60 @@ export interface DashboardNotification {
   readAt: string | null;
   createdAt: string;
 }
+
+export const auditEventTypes = [
+  "pool_created",
+  "circle_activated",
+  "circle_completed",
+  "circle_paused",
+  "circle_resumed",
+  "circle_cancelled",
+  "dispute_raised",
+  "dispute_resolved",
+  "member_invited",
+  "agreement_accepted",
+  "collateral_posted",
+  "collateral_slashed",
+  "collateral_refunded",
+  "contribution_paid",
+  "contribution_verified",
+  "payout_initiated",
+  "payout_released",
+  "reminder_sent",
+  "grace_period_started",
+  "grace_period_ended",
+  "member_restricted",
+  "member_left",
+  "round_started",
+  "round_completed",
+  "settings_changed",
+  "payout_order_changed",
+] as const;
+
+export type AuditEventType = (typeof auditEventTypes)[number];
+
+export const notificationTypes = [
+  "contribution_due_soon",
+  "contribution_due_now",
+  "contribution_overdue",
+  "collateral_slashed",
+  "collateral_refunded",
+  "collateral_required",
+  "member_restricted",
+  "payout_ready",
+  "payout_received",
+  "circle_activated",
+  "circle_paused",
+  "circle_resumed",
+  "circle_cancelled",
+  "grace_period_warning",
+  "member_invited",
+  "agreement_required",
+  "dispute_resolved",
+  "round_completed",
+] as const;
+
+export type NotificationType = (typeof notificationTypes)[number];
 
 export interface CircleListItem {
   id: string;
