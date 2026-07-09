@@ -3,6 +3,7 @@ import type { DashboardCircle } from "@/lib/dashboard/types";
 export const mockCircleStatuses = [
   "draft",
   "active",
+  "paused",
   "delayed",
   "completed",
   "disputed",
@@ -17,7 +18,14 @@ export const baseMockCircle: DashboardCircle = {
   contributionAsset: "USDC",
   intervalSeconds: 86_400,
   memberCount: 5,
+  maxMemberCount: 10,
   collateralAmount: 5,
+  gracePeriodHours: 4,
+  slashPercentage: 100,
+  warningThreshold: 2,
+  autoSlashEnabled: true,
+  payoutOrderMode: "creator",
+  reminderScheduleHours: [24, 1],
   currentRound: 2,
   totalRounds: 5,
   startDate: "2026-07-08T12:00:00.000Z",
@@ -38,7 +46,9 @@ export function createMockCircle(
 export const mockCirclesByStatus = mockCircleStatuses.map((status) =>
   createMockCircle({
     id: `circle-${status}`,
-    name: `${status.charAt(0).toUpperCase()}${status.slice(1)} Circle`,
+    name: `${
+      status.charAt(0).toUpperCase() + status.slice(1)
+    } Circle`,
     status,
     settingsLocked: status !== "draft",
     payoutOrderLocked: status !== "draft",

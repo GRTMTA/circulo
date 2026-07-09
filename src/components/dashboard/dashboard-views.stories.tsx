@@ -3,7 +3,6 @@ import type { Meta, StoryObj } from "@storybook/nextjs";
 import { DashboardViews } from "@/components/dashboard/dashboard-views";
 import {
   createCreatorDashboardMock,
-  createEmptyDashboardMock,
   createMemberDashboardMock,
 } from "@/lib/mocks";
 
@@ -19,26 +18,39 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const CreatorDashboard: Story = {
+export const ActiveCreatorCircle: Story = {
   args: {
     data: createCreatorDashboardMock(),
   },
 };
 
-export const MemberDashboard: Story = {
+export const DraftCreatorCircle: Story = {
+  args: {
+    data: createCreatorDashboardMock({
+      circle: createCreatorDashboardMock().circle && {
+        ...createCreatorDashboardMock().circle,
+        status: "draft",
+        settingsLocked: false,
+        payoutOrderLocked: false,
+        rulesLocked: false,
+      },
+    }),
+  },
+};
+
+export const CancelledCreatorCircle: Story = {
+  args: {
+    data: createCreatorDashboardMock({
+      circle: {
+        ...createCreatorDashboardMock().circle,
+        status: "cancelled",
+      },
+    }),
+  },
+};
+
+export const ActiveMemberCircle: Story = {
   args: {
     data: createMemberDashboardMock(),
-  },
-};
-
-export const EmptyState: Story = {
-  args: {
-    data: createEmptyDashboardMock(true),
-  },
-};
-
-export const SupabaseUnconfigured: Story = {
-  args: {
-    data: createEmptyDashboardMock(false),
   },
 };

@@ -2,16 +2,25 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Bell,
+  CalendarDays,
+  ClipboardCheck,
+  FileClock,
+  LayoutDashboard,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  PlusCircle,
   Search,
+  Settings,
+  UsersRound,
+  WalletCards,
   type LucideIcon,
 } from "lucide-react";
 
+import { CircleSwitcher } from "@/components/dashboard/circle-switcher";
 import { SidebarProvider } from "@/components/dashboard/sidebar-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -23,6 +32,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import type { CircleListItem } from "@/lib/dashboard/types";
 import { cn } from "@/lib/utils";
 
 export interface AppShellNavigationItem {
@@ -55,7 +65,7 @@ export interface AppShellBrand {
 
 interface AppShellProps {
   children: React.ReactNode;
-  navigation: readonly AppShellNavigationGroup[];
+  navigation?: readonly AppShellNavigationGroup[];
   brand?: AppShellBrand;
   user?: AppShellUser;
   headerSearch?: React.ReactNode;
@@ -63,7 +73,19 @@ interface AppShellProps {
   sidebarFooter?: React.ReactNode;
   notificationCount?: number;
   defaultCollapsed?: boolean;
+  circles?: CircleListItem[];
+  currentCircleId?: string;
 }
+
+const defaultNavigation: AppShellNavigationGroup[] = [
+  {
+    heading: "Circles",
+    items: [
+      { label: "All Circles", href: "/dashboard", icon: LayoutDashboard, match: "exact" },
+      { label: "Create Circle", href: "/dashboard/create", icon: PlusCircle },
+    ],
+  },
+];
 
 function matchesNavPath(pathname: string, item: AppShellNavigationItem) {
   if (item.match === "startsWith") {
@@ -80,6 +102,11 @@ function getInitials(name: string) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
+}
+
+function inferCircleId(pathname: string) {
+  const match = pathname.match(/^\/dashboard\/([^/]+)/);
+  return match?.[1] === "create" ? undefined : match?.[1];
 }
 
 function BrandMark({
@@ -190,7 +217,7 @@ function NavigationGroup({
 
 export function AppShell({
   children,
-  navigation,
+  navigation = defaultNavigation,
   brand = {
     title: "Application",
     href: "/",
@@ -201,11 +228,45 @@ export function AppShell({
   sidebarFooter,
   notificationCount,
   defaultCollapsed = false,
+  circles = [],
+  currentCircleId,
 }: AppShellProps) {
   const pathname = usePathname();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(defaultCollapsed);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const userInitials = user?.avatarFallback ?? (user ? getInitials(user.name) : "U");
+  const selectedCircleId = currentCircleId ?? inferCircleId(pathname);
+  const selectedCircle = circles.find((circle) => circle.id === selectedCircleId);
+  const visibleNavigation = useMemo<AppShellNavigationGroup[]>(() => {
+    if (!selectedCircle) return [...navigation];
+
+    const circleBase = `/dashboard/${selectedCircle.id}`;
+    const circleItems: AppShellNavigationItem[] = [
+      { label: "Circle", href: circleBase, icon: LayoutDashboard, match: "exact" },
+      { label: "Agreement", href: `${circleBase}/agreement`, icon: ClipboardCheck },
+      { label: "Calendar", href: `${circleBase}/calendar`, icon: CalendarDays },
+      { label: "Wallet", href: `${circleBase}/wallet`, icon: WalletCards },
+    ];
+
+    if (selectedCircle.role === "creator") {
+      circleItems.splice(
+        2,
+        0,
+        { label: "Members", href: `${circleBase}/members`, icon: UsersRound },
+        { label: "Settings", href: `${circleBase}/settings`, icon: Settings }
+      );
+    }
+
+    circleItems.push({ label: "Audit", href: `${circleBase}#audit`, icon: FileClock });
+
+    return [
+      ...navigation,
+      {
+        heading: selectedCircle.name,
+        items: circleItems,
+      },
+    ];
+  }, [navigation, selectedCircle]);
 
   return (
     <SidebarProvider
@@ -347,7 +408,10 @@ export function AppShell({
             </SheetHeader>
             <ScrollArea className="flex-1 px-3 py-3">
               <div className="space-y-3 pb-4">
-                {navigation.map((group, index) => (
+                {circles.length > 0 ? (
+                  <CircleSwitcher circles={circles} currentCircleId={selectedCircleId} />
+                ) : null}
+                {visibleNavigation.map((group, index) => (
                   <NavigationGroup
                     key={`${group.heading ?? "group"}-${index.toString()}`}
                     heading={group.heading}
@@ -383,7 +447,14 @@ export function AppShell({
             </div>
             <ScrollArea className={cn("flex-1 py-3", isSidebarCollapsed ? "px-2" : "px-3")}>
               <div className={cn("space-y-3", isSidebarCollapsed && "space-y-2")}>
-                {navigation.map((group, index) => (
+                {circles.length > 0 ? (
+                  <CircleSwitcher
+                    circles={circles}
+                    currentCircleId={selectedCircleId}
+                    collapsed={isSidebarCollapsed}
+                  />
+                ) : null}
+                {visibleNavigation.map((group, index) => (
                   <NavigationGroup
                     key={`${group.heading ?? "group"}-${index.toString()}`}
                     heading={group.heading}

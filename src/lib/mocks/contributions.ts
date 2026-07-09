@@ -9,6 +9,9 @@ export const mockContributions: DashboardContribution[] = [
     status: "paid",
     txHash: "tx_paid_91a2",
     paidAt: "2026-07-08T14:05:00.000Z",
+    slashedAmount: 0,
+    slashedAt: null,
+    remindersSent: 0,
   },
   {
     id: "contribution-pending",
@@ -18,6 +21,9 @@ export const mockContributions: DashboardContribution[] = [
     status: "pending",
     txHash: null,
     paidAt: null,
+    slashedAmount: 0,
+    slashedAt: null,
+    remindersSent: 1,
   },
   {
     id: "contribution-late",
@@ -27,6 +33,9 @@ export const mockContributions: DashboardContribution[] = [
     status: "late",
     txHash: null,
     paidAt: null,
+    slashedAmount: 2.5,
+    slashedAt: "2026-07-08T20:05:00.000Z",
+    remindersSent: 2,
   },
   {
     id: "contribution-grace",
@@ -36,6 +45,9 @@ export const mockContributions: DashboardContribution[] = [
     status: "grace_period",
     txHash: null,
     paidAt: null,
+    slashedAmount: 0,
+    slashedAt: null,
+    remindersSent: 1,
   },
   {
     id: "contribution-missed",
@@ -45,6 +57,9 @@ export const mockContributions: DashboardContribution[] = [
     status: "missed",
     txHash: null,
     paidAt: null,
+    slashedAmount: 5,
+    slashedAt: "2026-07-08T20:05:00.000Z",
+    remindersSent: 2,
   },
 ];
 
