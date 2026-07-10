@@ -1,8 +1,10 @@
+"use client";
 import Link from "next/link";
 import {
   ArrowRight,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   CircleDollarSign,
   ClipboardCheck,
   LockKeyhole,
@@ -17,6 +19,8 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { coreFeatures, techStack } from "@/lib/circulo";
+import { useEffect, useRef } from "react";
+import Image from "next/image";
 
 const metrics = [
   { label: "Roster", value: "5 members" },
@@ -74,25 +78,34 @@ const dashboardRows: {
 function GlowyWaveField() {
   return (
     <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
-      <div className="absolute left-1/2 top-14 h-[38rem] w-[72rem] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,color-mix(in_srgb,var(--color-primary-default)_34%,transparent),transparent_66%)] blur-3xl" />
-      <div className="animate-wave-drift absolute left-1/2 top-[12%] h-44 w-[78rem] -translate-x-1/2 rounded-[999px] bg-[linear-gradient(90deg,transparent,color-mix(in_srgb,var(--color-primary-default)_58%,transparent),color-mix(in_srgb,var(--color-success-default)_34%,transparent),transparent)] opacity-80 blur-2xl" />
-      <div className="animate-wave-drift-reverse absolute left-1/2 top-[28%] h-40 w-[72rem] -translate-x-1/2 rounded-[999px] bg-[linear-gradient(90deg,transparent,color-mix(in_srgb,var(--color-warning-default)_28%,transparent),color-mix(in_srgb,var(--color-primary-default)_46%,transparent),transparent)] opacity-75 blur-2xl" />
-      <div className="animate-pulse-glow absolute left-[6%] top-[24%] size-72 rounded-full bg-[radial-gradient(circle,color-mix(in_srgb,var(--color-success-default)_30%,transparent),transparent_68%)] blur-2xl" />
-      <div className="animate-pulse-glow absolute right-[4%] top-[16%] size-80 rounded-full bg-[radial-gradient(circle,color-mix(in_srgb,var(--color-warning-default)_26%,transparent),transparent_70%)] blur-3xl" />
-      <div className="absolute inset-x-0 bottom-0 h-56 bg-[linear-gradient(180deg,transparent,var(--color-background-default))]" />
+      <div className="absolute inset-0 hero-gradient-stage" />
+      <div className="animate-enter-soft absolute left-1/2 top-[42%] h-[40rem] w-[95rem] -translate-x-1/2 rounded-[999px] bg-[color-mix(in_srgb,var(--color-primary-default)_22%,var(--color-background-default))] opacity-90 blur-[150px]" />
+      <div className="animate-enter-late absolute left-1/2 top-[42%] h-[40rem] w-[95rem] -translate-x-1/2 rounded-[999px] bg-[color-mix(in_srgb,var(--color-success-default)_16%,var(--color-primary-muted))] opacity-70 blur-[150px]" />
+
+      <div className="absolute -left-64 -top-64 flex h-[31.25rem] w-[121rem] items-center justify-between gap-[58rem]">
+        <div className="animate-orbit-left size-[31.25rem] rounded-full bg-[color-mix(in_srgb,var(--color-primary-default)_24%,var(--color-background-default))] blur-[150px]" />
+        <div className="animate-orbit-right size-[31.25rem] rounded-full bg-[color-mix(in_srgb,var(--color-warning-default)_18%,var(--color-primary-muted))] blur-[150px]" />
+      </div>
+
+      <div className="animate-wave-drift absolute left-1/2 top-[18%] h-36 w-[78rem] -translate-x-1/2 rounded-[999px] bg-[linear-gradient(90deg,transparent,color-mix(in_srgb,var(--color-primary-default)_46%,transparent),color-mix(in_srgb,var(--color-success-default)_24%,transparent),transparent)] opacity-55 blur-3xl" />
+      <div className="animate-wave-drift-reverse absolute left-1/2 top-[34%] h-32 w-[70rem] -translate-x-1/2 rounded-[999px] bg-[linear-gradient(90deg,transparent,color-mix(in_srgb,var(--color-warning-default)_18%,transparent),color-mix(in_srgb,var(--color-primary-default)_34%,transparent),transparent)] opacity-50 blur-3xl" />
+      <div className="absolute inset-x-0 bottom-0 h-64 bg-[linear-gradient(180deg,transparent,var(--color-background-default))]" />
     </div>
   );
 }
 
 function LandingNav() {
   return (
-    <header className="sticky top-4 z-20 mx-auto flex w-full max-w-6xl px-4 sm:px-6">
-      <nav className="surface-glass gradient-border flex min-h-16 w-full items-center justify-between rounded-[14px] px-4 shadow-[0_18px_70px_-42px_rgba(26,31,54,0.56)] sm:px-5">
+    <header className="animate-enter-soft relative z-20 mx-auto mt-5 flex w-full max-w-[1116px] px-4 sm:px-6">
+      <nav className="surface-glass flex min-h-16 w-full items-center justify-between rounded-lg border border-border/45 px-4 shadow-[0_18px_70px_-42px_rgba(26,31,54,0.56)] sm:px-6 lg:gap-10">
         <Link href="/" className="flex items-center gap-3 font-semibold">
-          <span className="animate-gradient-shift flex size-9 items-center justify-center rounded-xl bg-[linear-gradient(135deg,var(--color-primary-default),var(--color-success-default),var(--color-warning-default))] text-primary-foreground shadow-[0_12px_34px_-16px_var(--color-primary-default)]">
-            C
-          </span>
-          <span>Circulo</span>
+          <Image
+            src="/logo.jpg"
+            alt="Circulo logo"
+            width={160}
+            height={40}
+            className="h-10 w-auto object-contain"
+          />
         </Link>
 
         <div className="flex items-center gap-2">
@@ -226,34 +239,54 @@ function SectionHeading({
   );
 }
 
+
 export function LandingPage() {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    const heading = headingRef.current;
+    if (!heading) return;
+
+    const handleMove = (e: MouseEvent) => {
+      const rect = heading.getBoundingClientRect();
+
+      const x = ((e.clientX - rect.left) / rect.width) * 100;
+      const y = ((e.clientY - rect.top) / rect.height) * 100;
+
+      heading.style.setProperty("--mouse-x", `${x}%`);
+      heading.style.setProperty("--mouse-y", `${y}%`);
+    };
+
+    window.addEventListener("mousemove", handleMove);
+
+    return () => window.removeEventListener("mousemove", handleMove);
+  }, []);
   return (
     <main className="min-h-screen overflow-hidden bg-background text-foreground">
-      <div className="gradient-mesh pointer-events-none fixed inset-0 -z-10" />
-      <div className="pointer-events-none fixed inset-0 -z-10 bg-[linear-gradient(90deg,color-mix(in_srgb,var(--color-border-default)_24%,transparent)_1px,transparent_1px),linear-gradient(180deg,color-mix(in_srgb,var(--color-border-default)_18%,transparent)_1px,transparent_1px)] bg-[size:72px_72px] opacity-25" />
-      <LandingNav />
-
-      <section className="relative isolate mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-6xl flex-col items-center justify-center overflow-hidden px-4 py-16 text-center sm:px-6 lg:py-20">
+      <section className="relative isolate flex min-h-screen w-full flex-col items-center overflow-hidden px-4 text-center sm:px-6">
         <GlowyWaveField />
+        <LandingNav />
         <div className="relative z-10 max-w-5xl">
-          <Badge variant="outline" className="gradient-border bg-background/72 shadow-[0_18px_46px_-36px_rgba(26,31,54,0.8)] backdrop-blur">
+          <div className="flex min-h-[calc(100vh-6.75rem)] flex-col items-center justify-center gap-14 py-14 sm:py-20">
+          <Badge variant="outline" className="animate-scale-in-late bg-background shadow-[0_18px_46px_-36px_rgba(26,31,54,0.8)] backdrop-blur">
             <Sparkles data-icon="inline-start" />
             Invite-only savings circles on Soroban
           </Badge>
-          <h1 className="mx-auto mt-6 max-w-5xl text-5xl font-semibold leading-[1.02] tracking-normal sm:text-6xl lg:text-7xl">
-            Trusted savings circles, wrapped in luminous on-chain clarity.
+          <h1
+          ref={headingRef}
+            className="hero-gradient-text animate-enter-late mx-auto max-w-[1133px] text-4xl font-medium leading-[1.17] tracking-normal sm:text-5xl lg:text-6xl">
+            Save together. Grow together.
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl rounded-[14px] border border-border/50 bg-background/62 p-4 text-lg leading-8 text-muted-foreground shadow-[0_20px_60px_-48px_rgba(26,31,54,0.8)] backdrop-blur">
-            Circulo gives private groups a clear, non-custodial way to manage fixed
-            contributions, locked payout rotations, collateral, and on-chain accountability.
+          <p className="animate-enter-late mx-auto max-w-3xl rounded-[14px] border border-border/45 bg-background/50 p-4 text-base font-medium leading-7 text-foreground/75 shadow-[0_18px_54px_-44px_rgba(26,31,54,0.75)] backdrop-blur sm:text-xl sm:leading-8">
+            A modern platform for trusted savings circles with transparent contributions, fair payouts, and secure records.
           </p>
 
-          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+          <div className="animate-scale-in-late flex flex-col justify-center gap-4 sm:flex-row sm:gap-11">
             <Link
               href="/login"
               className={cn(
                 buttonVariants({ size: "lg" }),
-                "animate-gradient-shift rounded-xl bg-[linear-gradient(135deg,var(--color-primary-default),color-mix(in_srgb,var(--color-primary-default)_74%,var(--color-success-default)),var(--color-primary-default))] shadow-[0_20px_44px_-24px_var(--color-primary-default)]"
+                "hero-primary-button rounded-lg border border-primary/20 text-primary-foreground shadow-[0_20px_44px_-24px_var(--color-primary-default)] transition hover:scale-105"
               )}
             >
               Start a circle
@@ -263,32 +296,33 @@ export function LandingPage() {
               href="/dashboard"
               className={cn(
                 buttonVariants({ variant: "outline", size: "lg" }),
-                "gradient-border rounded-xl bg-background/70"
+                "hero-secondary-button rounded-lg border-primary/20 text-foreground shadow-[0_16px_38px_-32px_rgba(26,31,54,0.65)] transition hover:scale-105"
               )}
             >
               View dashboard
             </Link>
           </div>
 
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
+          <div className="animate-enter-late flex flex-wrap justify-center gap-3">
             {trustSignals.map((signal) => (
               <span
                 key={signal}
-                className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/65 px-3 py-1.5 text-sm font-medium text-muted-foreground shadow-[0_14px_34px_-30px_rgba(26,31,54,0.72)] backdrop-blur"
+                className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 py-1.5 text-sm font-medium text-muted-foreground shadow-[0_14px_34px_-30px_rgba(26,31,54,0.72)] backdrop-blur"
               >
                 <CheckCircle2 className="size-4 text-primary" />
                 {signal}
               </span>
             ))}
           </div>
-        </div>
-
-        <div className="relative z-10 w-full">
-          <HeroProofPanel />
+          </div>
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6">
+      <section id="trust" className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6">
+        <HeroProofPanel />
+      </section>
+
+      <section id="features" className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6">
         <SectionHeading
           eyebrow="Built for accountability"
           title="Everything important is decided before activation."
@@ -301,7 +335,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6">
+      <section id="process" className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6">
         <div className="gradient-border grid gap-6 rounded-[18px] p-5 shadow-[0_24px_88px_-52px_rgba(26,31,54,0.68)] backdrop-blur md:grid-cols-3 md:p-6">
           {timeline.map((step, index) => {
             const Icon = step.icon;
