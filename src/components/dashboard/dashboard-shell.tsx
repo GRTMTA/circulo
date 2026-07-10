@@ -31,13 +31,14 @@ export function DashboardShell({
   return (
     <div className="grid gap-5">
       <div className={cn("space-y-6", !hasAnyHeader && "space-y-0")}>
-        <BreadcrumbTrail items={breadcrumbItems} />
-
-        {headerTopRow ? (
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            {headerTopRow}
-          </div>
-        ) : null}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <BreadcrumbTrail items={breadcrumbItems} />
+          {headerTopRow ? (
+            <div className="flex shrink-0 items-center gap-3">
+              {headerTopRow}
+            </div>
+          ) : null}
+        </div>
 
         {headerContent ? (
           <div>{headerContent}</div>
