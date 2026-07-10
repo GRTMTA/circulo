@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { DashboardViews } from "@/components/dashboard/dashboard-views";
 import { getCircleDTO } from "@/lib/dashboard/queries";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const dynamic = "force-dynamic";
 
@@ -16,17 +17,47 @@ export default async function CircleDashboardPage({
 
   if (!data) notFound();
 
+  const tabs = data.role === "creator"
+    ? [
+        ["overview", "Overview"],
+        ["activation", "Activation Gate"],
+        ["members", "Members & Collateral"],
+        ["contributions", "Contributions"],
+        ["payouts", "Payout Order"],
+        ["calendar", "Cycle Calendar"],
+        ["defaults", "Default Protection"],
+        ["audit", "Audit Log"],
+        ["settings", "Pool Settings"],
+      ]
+    : [
+        ["overview", "Overview"],
+        ["status", "My Status"],
+        ["pay", "Pay Contribution"],
+        ["timeline", "Payout Timeline"],
+        ["transparency", "Group Transparency"],
+        ["collateral", "Collateral Status"],
+        ["rules", "Rules & Agreement"],
+        ["notifications", "Notifications"],
+      ];
+
   return (
-    <DashboardShell
-      title={data.role === "creator" ? "Creator dashboard" : "Member dashboard"}
-      description={`${data.circle.name} keeps the fixed roster, contribution rules, and payout order visible.`}
-      breadcrumbItems={[
-        { label: "All Circles", href: "/dashboard" },
-        { label: data.circle.name },
-      ]}
-    >
-      <DashboardViews data={data} />
-    </DashboardShell>
+    <Tabs defaultValue="overview" className="flex flex-col gap-6 w-full">
+      <div className="border-b border-[var(--color-border-muted)] bg-transparent pb-1">
+        <TabsList className="max-w-full overflow-x-auto" variant="line">
+          {tabs.map(([value, label]) => (
+            <TabsTrigger key={value} value={value}>
+              {label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </div>
+
+      <DashboardShell
+        title={data.circle.name}
+        description={data.role === "creator" ? "Creator Dashboard" : "Member Dashboard"}
+      >
+        <DashboardViews data={data} isTabContentOnly />
+      </DashboardShell>
+    </Tabs>
   );
 }
-

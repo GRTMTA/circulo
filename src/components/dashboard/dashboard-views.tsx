@@ -610,7 +610,13 @@ function AuditList({
   );
 }
 
-function CreatorDashboard({ data }: { data: CreatorDashboardDTO }) {
+function CreatorDashboard({
+  data,
+  isTabContentOnly = false,
+}: {
+  data: CreatorDashboardDTO;
+  isTabContentOnly?: boolean;
+}) {
   const currentRound = getCurrentRound(data.rounds, data.circle.currentRound);
   const postedCollateral = data.members.filter((member) => member.collateralStatus === "posted").length;
   const acceptedMembers = data.members.filter((member) => member.inviteStatus === "accepted").length;
@@ -626,23 +632,8 @@ function CreatorDashboard({ data }: { data: CreatorDashboardDTO }) {
     data.circle.settingsLocked &&
     data.circle.rulesLocked;
 
-  return (
-    <Tabs defaultValue="overview" className="gap-5">
-      <TabsList className="max-w-full overflow-x-auto" variant="line">
-        {[
-          ["overview", "Overview"],
-          ["activation", "Activation Gate"],
-          ["members", "Members & Collateral"],
-          ["contributions", "Contributions"],
-          ["payouts", "Payout Order"],
-          ["calendar", "Cycle Calendar"],
-          ["defaults", "Default Protection"],
-          ["audit", "Audit Log"],
-          ["settings", "Pool Settings"],
-        ].map(([value, label]) => (
-          <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
-        ))}
-      </TabsList>
+  const tabContent = (
+    <>
 
       <TabsContent value="overview" className="grid gap-6">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -759,11 +750,42 @@ function CreatorDashboard({ data }: { data: CreatorDashboardDTO }) {
           </div>
         </SectionCard>
       </TabsContent>
+    </>
+  );
+
+  if (isTabContentOnly) {
+    return tabContent;
+  }
+
+  return (
+    <Tabs defaultValue="overview" className="gap-5">
+      <TabsList className="max-w-full overflow-x-auto" variant="line">
+        {[
+          ["overview", "Overview"],
+          ["activation", "Activation Gate"],
+          ["members", "Members & Collateral"],
+          ["contributions", "Contributions"],
+          ["payouts", "Payout Order"],
+          ["calendar", "Cycle Calendar"],
+          ["defaults", "Default Protection"],
+          ["audit", "Audit Log"],
+          ["settings", "Pool Settings"],
+        ].map(([value, label]) => (
+          <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
+        ))}
+      </TabsList>
+      {tabContent}
     </Tabs>
   );
 }
 
-function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
+function MemberDashboard({
+  data,
+  isTabContentOnly = false,
+}: {
+  data: MemberDashboardDTO;
+  isTabContentOnly?: boolean;
+}) {
   const currentRound = getCurrentRound(data.rounds, data.circle.currentRound);
   const myContribution = data.contributions.find(
     (contribution) =>
@@ -776,22 +798,8 @@ function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
   const postedCollateral = data.members.filter((m) => m.collateralStatus === "posted").length;
   const missingContributions = data.members.length - data.contributions.filter(c => c.roundId === currentRound?.id && c.status === "paid").length;
 
-  return (
-    <Tabs defaultValue="overview" className="gap-5">
-      <TabsList className="max-w-full overflow-x-auto" variant="line">
-        {[
-          ["overview", "Overview"],
-          ["status", "My Status"],
-          ["pay", "Pay Contribution"],
-          ["timeline", "Payout Timeline"],
-          ["transparency", "Group Transparency"],
-          ["collateral", "Collateral Status"],
-          ["rules", "Rules & Agreement"],
-          ["notifications", "Notifications"],
-        ].map(([value, label]) => (
-          <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
-        ))}
-      </TabsList>
+  const tabContent = (
+    <>
 
       <TabsContent value="overview" className="grid gap-6">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -892,6 +900,30 @@ function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
           )}
         </SectionCard>
       </TabsContent>
+    </>
+  );
+
+  if (isTabContentOnly) {
+    return tabContent;
+  }
+
+  return (
+    <Tabs defaultValue="overview" className="gap-5">
+      <TabsList className="max-w-full overflow-x-auto" variant="line">
+        {[
+          ["overview", "Overview"],
+          ["status", "My Status"],
+          ["pay", "Pay Contribution"],
+          ["timeline", "Payout Timeline"],
+          ["transparency", "Group Transparency"],
+          ["collateral", "Collateral Status"],
+          ["rules", "Rules & Agreement"],
+          ["notifications", "Notifications"],
+        ].map(([value, label]) => (
+          <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
+        ))}
+      </TabsList>
+      {tabContent}
     </Tabs>
   );
 }
@@ -911,12 +943,18 @@ function DashboardEmptyState({ configured }: { configured: boolean }) {
   );
 }
 
-export function DashboardViews({ data }: { data: DashboardDTO }) {
+export function DashboardViews({
+  data,
+  isTabContentOnly = false,
+}: {
+  data: DashboardDTO;
+  isTabContentOnly?: boolean;
+}) {
   if (data.role === "creator") {
-    return <CreatorDashboard data={data} />;
+    return <CreatorDashboard data={data} isTabContentOnly={isTabContentOnly} />;
   }
   if (data.role === "member") {
-    return <MemberDashboard data={data} />;
+    return <MemberDashboard data={data} isTabContentOnly={isTabContentOnly} />;
   }
   return <DashboardEmptyState configured={data.configured} />;
 }
