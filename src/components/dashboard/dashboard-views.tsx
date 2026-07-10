@@ -4,8 +4,6 @@ import { useState } from "react";
 import {
   CalendarDays,
   ClipboardCheck,
-  FileClock,
-  LayoutDashboard,
   LockKeyhole,
   LucideIcon,
   PiggyBank,
@@ -19,8 +17,7 @@ import {
   ArrowDown,
 } from "lucide-react";
 
-import { AppShell, type AppShellNavigationGroup } from "@/components/dashboard/app-shell";
-import { DashboardShell } from "@/components/dashboard/dashboard-shell";
+// AppShell and DashboardShell imports removed since layout is managed by Next.js layouts.
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -66,29 +63,7 @@ import type {
   MemberDashboardDTO,
 } from "@/lib/dashboard/types";
 
-const creatorNavigation: AppShellNavigationGroup[] = [
-  {
-    heading: "Pool creator",
-    items: [
-      { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, match: "exact" },
-      { label: "Members", href: "/dashboard#members", icon: UsersRound },
-      { label: "Contributions", href: "/dashboard#contributions", icon: PiggyBank },
-      { label: "Audit Log", href: "/dashboard#audit", icon: FileClock },
-    ],
-  },
-];
-
-const memberNavigation: AppShellNavigationGroup[] = [
-  {
-    heading: "Pool member",
-    items: [
-      { label: "My Status", href: "/dashboard", icon: LayoutDashboard, match: "exact" },
-      { label: "Pay", href: "/dashboard#pay", icon: WalletCards },
-      { label: "Timeline", href: "/dashboard#timeline", icon: CalendarDays },
-      { label: "Rules", href: "/dashboard#rules", icon: ShieldCheck },
-    ],
-  },
-];
+// navigation variables removed as sidebar is constructed dynamically by the parent AppShell.
 
 export function titleCase(value: string) {
   return value
@@ -923,42 +898,11 @@ function DashboardEmptyState({ configured }: { configured: boolean }) {
 }
 
 export function DashboardViews({ data }: { data: DashboardDTO }) {
-  const navigation = data.role === "member" ? memberNavigation : creatorNavigation;
-  const title =
-    data.role === "empty"
-      ? "Circulo"
-      : data.role === "creator"
-        ? "Creator dashboard"
-        : "Member dashboard";
-
-  return (
-    <AppShell
-      navigation={navigation}
-      brand={{
-        title: "Circulo",
-        href: "/dashboard",
-        full: <span className="font-heading text-xl">Circulo</span>,
-        compact: <span className="font-heading text-lg">C</span>,
-      }}
-      notificationCount={data.role === "member" ? data.notifications.length : undefined}
-    >
-      <DashboardShell
-        title={title}
-        description={
-          data.role === "empty"
-            ? "Invite-only rotating savings circles will appear here after setup or acceptance."
-            : `${data.circle.name} keeps the fixed roster, contribution rules, and payout order visible.`
-        }
-        breadcrumbItems={[]}
-      >
-        {data.role === "creator" ? (
-          <CreatorDashboard data={data} />
-        ) : data.role === "member" ? (
-          <MemberDashboard data={data} />
-        ) : (
-          <DashboardEmptyState configured={data.configured} />
-        )}
-      </DashboardShell>
-    </AppShell>
-  );
+  if (data.role === "creator") {
+    return <CreatorDashboard data={data} />;
+  }
+  if (data.role === "member") {
+    return <MemberDashboard data={data} />;
+  }
+  return <DashboardEmptyState configured={data.configured} />;
 }

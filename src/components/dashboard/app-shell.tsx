@@ -12,7 +12,6 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
-  PlusCircle,
   Search,
   Settings,
   UsersRound,
@@ -82,7 +81,6 @@ const defaultNavigation: AppShellNavigationGroup[] = [
     heading: "Circles",
     items: [
       { label: "All Circles", href: "/dashboard", icon: LayoutDashboard, match: "exact" },
-      { label: "Create Circle", href: "/dashboard/create", icon: PlusCircle },
     ],
   },
 ];
