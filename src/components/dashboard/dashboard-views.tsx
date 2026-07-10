@@ -773,11 +773,14 @@ function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
   const paidMembers = data.contributions.filter((contribution) => contribution.status === "paid").length;
   const pendingMembers = data.contributions.filter((contribution) => ["pending", "due_now", "due_soon"].includes(contribution.status)).length;
   const lateMembers = data.contributions.filter((contribution) => ["late", "grace_period", "missed"].includes(contribution.status)).length;
+  const postedCollateral = data.members.filter((m) => m.collateralStatus === "posted").length;
+  const missingContributions = data.members.length - data.contributions.filter(c => c.roundId === currentRound?.id && c.status === "paid").length;
 
   return (
-    <Tabs defaultValue="status" className="gap-5">
+    <Tabs defaultValue="overview" className="gap-5">
       <TabsList className="max-w-full overflow-x-auto" variant="line">
         {[
+          ["overview", "Overview"],
           ["status", "My Status"],
           ["pay", "Pay Contribution"],
           ["timeline", "Payout Timeline"],
@@ -789,6 +792,17 @@ function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
           <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
         ))}
       </TabsList>
+
+      <TabsContent value="overview" className="grid gap-6">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <StatCard label="Pool Status" value={titleCase(data.circle.status)} icon={ShieldCheck} />
+          <StatCard label="Collateral Posted" value={`${postedCollateral} / ${data.members.length}`} icon={LockKeyhole} />
+          <StatCard label="Current Round" value={`Round ${data.circle.currentRound}`} detail={`of ${data.circle.totalRounds}`} icon={CalendarDays} />
+          <StatCard label="Collected" value={formatAmount(currentRound?.collectedAmount ?? 0, data.circle.contributionAmount > 0 ? data.circle.contributionAsset : "")} detail={`Expected ${formatAmount(currentRound?.expectedAmount ?? 0, data.circle.contributionAmount > 0 ? data.circle.contributionAsset : "")}`} icon={PiggyBank} />
+          <StatCard label="Next Due" value={formatDate(currentRound?.dueAt ?? null)} icon={ClipboardCheck} />
+          <StatCard label="Missing Contributions" value={`${Math.max(0, missingContributions)} member${missingContributions === 1 ? "" : "s"}`} icon={ShieldAlert} />
+        </div>
+      </TabsContent>
 
       <TabsContent value="status" className="grid gap-6">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
