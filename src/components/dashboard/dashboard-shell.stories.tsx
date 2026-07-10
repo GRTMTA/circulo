@@ -42,6 +42,17 @@ export const WithActions: Story = {
   },
 };
 
+export const NestedBreadcrumbs: Story = {
+  args: {
+    breadcrumbItems: [
+      { label: "All Circles", href: "/dashboard" },
+      { label: "Makati Friday Circle", href: "/dashboard/circle-makati-friday" },
+      { label: "Calendar" },
+    ],
+    title: "Cycle Calendar",
+  },
+};
+
 export const EmptyContent: Story = {
   args: {
     title: "No circle dashboard yet",

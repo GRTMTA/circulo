@@ -1,4 +1,4 @@
-import { DashboardViews } from "@/components/dashboard/dashboard-views";
+import { CircleList } from "@/components/dashboard/circle-list";
 import { getDashboardDTO } from "@/lib/dashboard/queries";
 
 export const dynamic = "force-dynamic";
@@ -6,5 +6,5 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const dashboard = await getDashboardDTO();
 
-  return <DashboardViews data={dashboard} />;
+  return <CircleList circles={dashboard} />;
 }
