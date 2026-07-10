@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { BreadcrumbTrail, type BreadcrumbTrailItem } from "@/components/dashboard/breadcrumb-trail";
+import type { BreadcrumbTrailItem } from "@/components/dashboard/breadcrumb-trail";
 import { cn } from "@/lib/utils";
 
 interface DashboardShellProps {
@@ -9,7 +9,7 @@ interface DashboardShellProps {
   headerActions?: ReactNode;
   headerTopRow?: ReactNode;
   headerContent?: ReactNode;
-  breadcrumbItems: BreadcrumbTrailItem[];
+  breadcrumbItems?: BreadcrumbTrailItem[];
   children: ReactNode;
   className?: string;
 }
@@ -20,7 +20,6 @@ export function DashboardShell({
   headerActions,
   headerTopRow,
   headerContent,
-  breadcrumbItems,
   children,
   className,
 }: DashboardShellProps) {
@@ -32,9 +31,8 @@ export function DashboardShell({
     <div className="grid gap-5">
       <div className={cn("space-y-6", !hasAnyHeader && "space-y-0")}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <BreadcrumbTrail items={breadcrumbItems} />
           {headerTopRow ? (
-            <div className="flex shrink-0 items-center gap-3">
+            <div className="flex shrink-0 items-center gap-3 ml-auto">
               {headerTopRow}
             </div>
           ) : null}

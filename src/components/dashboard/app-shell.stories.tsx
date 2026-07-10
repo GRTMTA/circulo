@@ -1,36 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/nextjs";
-import {
-  CalendarDays,
-  FileClock,
-  LayoutDashboard,
-  PiggyBank,
-  ShieldCheck,
-  UsersRound,
-} from "lucide-react";
+// Unused Lucide icons removed.
 
-import { AppShell, type AppShellNavigationGroup } from "@/components/dashboard/app-shell";
+import { AppShell } from "@/components/dashboard/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createCirclesListMock } from "@/lib/mocks";
-
-const navigation: AppShellNavigationGroup[] = [
-  {
-    heading: "Creator",
-    items: [
-      { label: "Overview", href: "/dashboard", icon: LayoutDashboard, match: "exact" },
-      { label: "Members", href: "/dashboard/members", icon: UsersRound },
-      { label: "Contributions", href: "/dashboard/contributions", icon: PiggyBank },
-    ],
-  },
-  {
-    heading: "Trust",
-    items: [
-      { label: "Calendar", href: "/dashboard/calendar", icon: CalendarDays },
-      { label: "Protection", href: "/dashboard/protection", icon: ShieldCheck },
-      { label: "Audit Log", href: "/dashboard/audit", icon: FileClock },
-    ],
-  },
-];
 
 function ShellContent() {
   return (
@@ -58,7 +32,6 @@ const meta = {
     layout: "fullscreen",
   },
   args: {
-    navigation,
     brand: {
       title: "Circulo",
       href: "/dashboard",
