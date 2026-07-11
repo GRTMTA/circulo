@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-import { idleState, registerAction } from "@/app/auth/actions";
+import { registerAction } from "@/app/auth/actions";
+import { idleState } from "@/lib/auth-shared";
 import { AuthStatus } from "@/components/auth/auth-status";
 import { PasswordInput } from "@/components/auth/password-input";
 import { VerifyEmailDialog } from "@/components/auth/verify-email-dialog";

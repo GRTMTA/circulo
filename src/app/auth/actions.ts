@@ -6,21 +6,8 @@ import { redirect } from "next/navigation";
 
 import { getIsSupabaseConfigured } from "@/lib/env";
 import { getSafeNextPath } from "@/lib/auth";
+import { type AuthActionState } from "@/lib/auth-shared";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-
-export interface AuthActionState {
-  status: "idle" | "error" | "success" | "verification";
-  message: string;
-  email?: string;
-  redirectTo?: string;
-}
-
-const idleState: AuthActionState = {
-  status: "idle",
-  message: "",
-};
-
-export { idleState };
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);

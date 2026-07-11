@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useActionState } from "react";
 
-import { forgotPasswordAction, idleState } from "@/app/auth/actions";
+import { forgotPasswordAction } from "@/app/auth/actions";
+import { idleState } from "@/lib/auth-shared";
 import { AuthStatus } from "@/components/auth/auth-status";
 import { Button } from "@/components/ui/button";
 import {
