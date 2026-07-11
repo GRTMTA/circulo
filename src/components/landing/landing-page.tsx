@@ -4,7 +4,6 @@ import {
   ArrowRight,
   CalendarDays,
   CheckCircle2,
-  ChevronDown,
   CircleDollarSign,
   ClipboardCheck,
   LockKeyhole,

@@ -374,6 +374,7 @@
   75% {
     transform: translate3d(-60px, -90px, 0) scale(1.24);
   }
+}
 
   .gradient-mesh {
     background:
@@ -395,7 +396,7 @@
       linear-gradient(180deg, color-mix(in srgb, var(--color-background-muted) 72%, var(--color-background-default)), var(--color-background-default));
   }
 
-.hero-gradient-text {
+  .hero-gradient-text {
   --mouse-x: 50%;
   --mouse-y: 50%;
 
@@ -438,7 +439,7 @@
   transition:
     background-position 0.15s ease-out,
     filter 0.3s ease;
-}
+  }
 
   .hero-primary-button {
     background: radial-gradient(
@@ -492,7 +493,7 @@
   .animate-orbit-right {
     animation: orbit-right 32s ease-in-out infinite;
   }
-}
+
 
 @keyframes enter-soft {
   0% {
