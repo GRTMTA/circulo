@@ -4,10 +4,10 @@ import { useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import {
-  idleState,
   resendVerificationAction,
   verifyEmailCodeAction,
 } from "@/app/auth/actions";
+import { idleState } from "@/lib/auth-shared";
 import { AuthStatus } from "@/components/auth/auth-status";
 import { Button } from "@/components/ui/button";
 import {

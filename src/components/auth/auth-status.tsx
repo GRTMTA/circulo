@@ -5,7 +5,7 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert";
-import type { AuthActionState } from "@/app/auth/actions";
+import type { AuthActionState } from "@/lib/auth-shared";
 
 interface AuthStatusProps {
   state: AuthActionState;
