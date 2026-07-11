@@ -81,10 +81,7 @@ export default function Home() {
 
         <div className="grid gap-3 border-t border-[#17140f]/15 pt-6 sm:grid-cols-2 lg:grid-cols-3">
           {techStack.map((item) => (
-            <div
-              key={item}
-              className="flex items-center gap-2 text-sm text-[#5d5548]"
-            >
+            <div key={item} className="flex items-center gap-2 text-sm text-[#5d5548]">
               <CheckCircle2 size={16} className="text-[#2f6f5e]" />
               {item}
             </div>
