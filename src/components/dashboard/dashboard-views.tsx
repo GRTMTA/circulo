@@ -4,8 +4,6 @@ import { useState } from "react";
 import {
   CalendarDays,
   ClipboardCheck,
-  FileClock,
-  LayoutDashboard,
   LockKeyhole,
   LucideIcon,
   PiggyBank,
@@ -19,8 +17,7 @@ import {
   ArrowDown,
 } from "lucide-react";
 
-import { AppShell, type AppShellNavigationGroup } from "@/components/dashboard/app-shell";
-import { DashboardShell } from "@/components/dashboard/dashboard-shell";
+// AppShell and DashboardShell imports removed since layout is managed by Next.js layouts.
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -66,29 +63,7 @@ import type {
   MemberDashboardDTO,
 } from "@/lib/dashboard/types";
 
-const creatorNavigation: AppShellNavigationGroup[] = [
-  {
-    heading: "Pool creator",
-    items: [
-      { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, match: "exact" },
-      { label: "Members", href: "/dashboard#members", icon: UsersRound },
-      { label: "Contributions", href: "/dashboard#contributions", icon: PiggyBank },
-      { label: "Audit Log", href: "/dashboard#audit", icon: FileClock },
-    ],
-  },
-];
-
-const memberNavigation: AppShellNavigationGroup[] = [
-  {
-    heading: "Pool member",
-    items: [
-      { label: "My Status", href: "/dashboard", icon: LayoutDashboard, match: "exact" },
-      { label: "Pay", href: "/dashboard#pay", icon: WalletCards },
-      { label: "Timeline", href: "/dashboard#timeline", icon: CalendarDays },
-      { label: "Rules", href: "/dashboard#rules", icon: ShieldCheck },
-    ],
-  },
-];
+// navigation variables removed as sidebar is constructed dynamically by the parent AppShell.
 
 export function titleCase(value: string) {
   return value
@@ -635,7 +610,13 @@ function AuditList({
   );
 }
 
-function CreatorDashboard({ data }: { data: CreatorDashboardDTO }) {
+function CreatorDashboard({
+  data,
+  isTabContentOnly = false,
+}: {
+  data: CreatorDashboardDTO;
+  isTabContentOnly?: boolean;
+}) {
   const currentRound = getCurrentRound(data.rounds, data.circle.currentRound);
   const postedCollateral = data.members.filter((member) => member.collateralStatus === "posted").length;
   const acceptedMembers = data.members.filter((member) => member.inviteStatus === "accepted").length;
@@ -651,23 +632,8 @@ function CreatorDashboard({ data }: { data: CreatorDashboardDTO }) {
     data.circle.settingsLocked &&
     data.circle.rulesLocked;
 
-  return (
-    <Tabs defaultValue="overview" className="gap-5">
-      <TabsList className="max-w-full overflow-x-auto" variant="line">
-        {[
-          ["overview", "Overview"],
-          ["activation", "Activation Gate"],
-          ["members", "Members & Collateral"],
-          ["contributions", "Contributions"],
-          ["payouts", "Payout Order"],
-          ["calendar", "Cycle Calendar"],
-          ["defaults", "Default Protection"],
-          ["audit", "Audit Log"],
-          ["settings", "Pool Settings"],
-        ].map(([value, label]) => (
-          <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
-        ))}
-      </TabsList>
+  const tabContent = (
+    <>
 
       <TabsContent value="overview" className="grid gap-6">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -784,11 +750,42 @@ function CreatorDashboard({ data }: { data: CreatorDashboardDTO }) {
           </div>
         </SectionCard>
       </TabsContent>
+    </>
+  );
+
+  if (isTabContentOnly) {
+    return tabContent;
+  }
+
+  return (
+    <Tabs defaultValue="overview" className="gap-5">
+      <TabsList className="max-w-full overflow-x-auto" variant="line">
+        {[
+          ["overview", "Overview"],
+          ["activation", "Activation Gate"],
+          ["members", "Members & Collateral"],
+          ["contributions", "Contributions"],
+          ["payouts", "Payout Order"],
+          ["calendar", "Cycle Calendar"],
+          ["defaults", "Default Protection"],
+          ["audit", "Audit Log"],
+          ["settings", "Pool Settings"],
+        ].map(([value, label]) => (
+          <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
+        ))}
+      </TabsList>
+      {tabContent}
     </Tabs>
   );
 }
 
-function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
+function MemberDashboard({
+  data,
+  isTabContentOnly = false,
+}: {
+  data: MemberDashboardDTO;
+  isTabContentOnly?: boolean;
+}) {
   const currentRound = getCurrentRound(data.rounds, data.circle.currentRound);
   const myContribution = data.contributions.find(
     (contribution) =>
@@ -798,22 +795,22 @@ function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
   const paidMembers = data.contributions.filter((contribution) => contribution.status === "paid").length;
   const pendingMembers = data.contributions.filter((contribution) => ["pending", "due_now", "due_soon"].includes(contribution.status)).length;
   const lateMembers = data.contributions.filter((contribution) => ["late", "grace_period", "missed"].includes(contribution.status)).length;
+  const postedCollateral = data.members.filter((m) => m.collateralStatus === "posted").length;
+  const missingContributions = data.members.length - data.contributions.filter(c => c.roundId === currentRound?.id && c.status === "paid").length;
 
-  return (
-    <Tabs defaultValue="status" className="gap-5">
-      <TabsList className="max-w-full overflow-x-auto" variant="line">
-        {[
-          ["status", "My Status"],
-          ["pay", "Pay Contribution"],
-          ["timeline", "Payout Timeline"],
-          ["transparency", "Group Transparency"],
-          ["collateral", "Collateral Status"],
-          ["rules", "Rules & Agreement"],
-          ["notifications", "Notifications"],
-        ].map(([value, label]) => (
-          <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
-        ))}
-      </TabsList>
+  const tabContent = (
+    <>
+
+      <TabsContent value="overview" className="grid gap-6">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <StatCard label="Pool Status" value={titleCase(data.circle.status)} icon={ShieldCheck} />
+          <StatCard label="Collateral Posted" value={`${postedCollateral} / ${data.members.length}`} icon={LockKeyhole} />
+          <StatCard label="Current Round" value={`Round ${data.circle.currentRound}`} detail={`of ${data.circle.totalRounds}`} icon={CalendarDays} />
+          <StatCard label="Collected" value={formatAmount(currentRound?.collectedAmount ?? 0, data.circle.contributionAmount > 0 ? data.circle.contributionAsset : "")} detail={`Expected ${formatAmount(currentRound?.expectedAmount ?? 0, data.circle.contributionAmount > 0 ? data.circle.contributionAsset : "")}`} icon={PiggyBank} />
+          <StatCard label="Next Due" value={formatDate(currentRound?.dueAt ?? null)} icon={ClipboardCheck} />
+          <StatCard label="Missing Contributions" value={`${Math.max(0, missingContributions)} member${missingContributions === 1 ? "" : "s"}`} icon={ShieldAlert} />
+        </div>
+      </TabsContent>
 
       <TabsContent value="status" className="grid gap-6">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -903,6 +900,30 @@ function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
           )}
         </SectionCard>
       </TabsContent>
+    </>
+  );
+
+  if (isTabContentOnly) {
+    return tabContent;
+  }
+
+  return (
+    <Tabs defaultValue="overview" className="gap-5">
+      <TabsList className="max-w-full overflow-x-auto" variant="line">
+        {[
+          ["overview", "Overview"],
+          ["status", "My Status"],
+          ["pay", "Pay Contribution"],
+          ["timeline", "Payout Timeline"],
+          ["transparency", "Group Transparency"],
+          ["collateral", "Collateral Status"],
+          ["rules", "Rules & Agreement"],
+          ["notifications", "Notifications"],
+        ].map(([value, label]) => (
+          <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
+        ))}
+      </TabsList>
+      {tabContent}
     </Tabs>
   );
 }
@@ -922,43 +943,18 @@ function DashboardEmptyState({ configured }: { configured: boolean }) {
   );
 }
 
-export function DashboardViews({ data }: { data: DashboardDTO }) {
-  const navigation = data.role === "member" ? memberNavigation : creatorNavigation;
-  const title =
-    data.role === "empty"
-      ? "Circulo"
-      : data.role === "creator"
-        ? "Creator dashboard"
-        : "Member dashboard";
-
-  return (
-    <AppShell
-      navigation={navigation}
-      brand={{
-        title: "Circulo",
-        href: "/dashboard",
-        full: <span className="font-heading text-xl">Circulo</span>,
-        compact: <span className="font-heading text-lg">C</span>,
-      }}
-      notificationCount={data.role === "member" ? data.notifications.length : undefined}
-    >
-      <DashboardShell
-        title={title}
-        description={
-          data.role === "empty"
-            ? "Invite-only rotating savings circles will appear here after setup or acceptance."
-            : `${data.circle.name} keeps the fixed roster, contribution rules, and payout order visible.`
-        }
-        breadcrumbItems={[]}
-      >
-        {data.role === "creator" ? (
-          <CreatorDashboard data={data} />
-        ) : data.role === "member" ? (
-          <MemberDashboard data={data} />
-        ) : (
-          <DashboardEmptyState configured={data.configured} />
-        )}
-      </DashboardShell>
-    </AppShell>
-  );
+export function DashboardViews({
+  data,
+  isTabContentOnly = false,
+}: {
+  data: DashboardDTO;
+  isTabContentOnly?: boolean;
+}) {
+  if (data.role === "creator") {
+    return <CreatorDashboard data={data} isTabContentOnly={isTabContentOnly} />;
+  }
+  if (data.role === "member") {
+    return <MemberDashboard data={data} isTabContentOnly={isTabContentOnly} />;
+  }
+  return <DashboardEmptyState configured={data.configured} />;
 }

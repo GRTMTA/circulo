@@ -99,23 +99,25 @@ function CircleCard({ circle }: { circle: CircleListItem }) {
 }
 
 export function CircleList({ circles }: { circles: CirclesDTO }) {
+  const createButton = (
+    <Button render={<Link href="/dashboard/create" />} nativeButton={false}>
+      <PlusCircle className="size-4" />
+      Create Circle
+    </Button>
+  );
+
   if (circles.length === 0) {
     return (
       <DashboardShell
         title="Your Circles"
         description="Create or accept an invite-only circle to begin."
         breadcrumbItems={[]}
+        headerTopRow={createButton}
       >
         <EmptyState
           icon={<UsersRound className="size-8" />}
           title="No circles yet"
           description="Circulo keeps every pool invite-only, fixed-roster, and rule-locked before activation."
-          actions={
-            <Button render={<Link href="/dashboard/create" />} nativeButton={false}>
-              <PlusCircle className="size-4" />
-              Create a circle
-            </Button>
-          }
         />
       </DashboardShell>
     );
@@ -126,12 +128,7 @@ export function CircleList({ circles }: { circles: CirclesDTO }) {
       title="Your Circles"
       description="Switch between circles, check payment readiness, and inspect the next action for each pool."
       breadcrumbItems={[]}
-      headerActions={
-        <Button render={<Link href="/dashboard/create" />} nativeButton={false}>
-          <PlusCircle className="size-4" />
-          Create Circle
-        </Button>
-      }
+      headerTopRow={createButton}
     >
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
         {circles.map((circle) => (

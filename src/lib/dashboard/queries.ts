@@ -3,6 +3,7 @@ import "server-only";
 import { getIsSupabaseConfigured } from "@/lib/env";
 import { requireAuthenticatedUser } from "@/lib/auth";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createCircleMock, createCirclesListMock } from "@/lib/mocks";
 import type {
   CircleEnrichedDTO,
   CircleListItem,
@@ -360,7 +361,7 @@ export async function getDashboardDTO(): Promise<CirclesDTO> {
   const authContext = await requireAuthenticatedUser("/dashboard");
 
   if (!getIsSupabaseConfigured() || !authContext.configured || !authContext.user) {
-    return [];
+    return createCirclesListMock();
   }
 
   const supabase = await createServerSupabaseClient();
@@ -387,6 +388,10 @@ export async function getDashboardDTO(): Promise<CirclesDTO> {
 }
 
 export async function getCircleDTO(circleId: string): Promise<CircleEnrichedDTO | null> {
+  if (circleId.startsWith("circle-")) {
+    return createCircleMock(circleId);
+  }
+
   const authContext = await requireAuthenticatedUser(`/dashboard/${circleId}`);
 
   if (!getIsSupabaseConfigured() || !authContext.configured || !authContext.user) {

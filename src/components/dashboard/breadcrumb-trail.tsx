@@ -1,11 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 
-import { useOptionalSidebar } from "@/components/dashboard/sidebar-context";
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export interface BreadcrumbTrailItem {
@@ -26,7 +23,6 @@ export function BreadcrumbTrail({
   homeLabel = "Dashboard",
   homeHref = "/dashboard",
 }: BreadcrumbTrailProps) {
-  const sidebar = useOptionalSidebar();
   const cleanedItems = items.filter((item) => item.label.trim().length > 0);
   const trail: BreadcrumbTrailItem[] = [
     {
@@ -41,34 +37,6 @@ export function BreadcrumbTrail({
       aria-label="Breadcrumb"
       className={cn("flex items-center gap-3 text-base font-semibold text-[var(--color-text-secondary)]", className)}
     >
-      {sidebar ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="hidden size-11 rounded-xl text-[var(--color-text-secondary)] hover:bg-[var(--color-primary-lighter)] hover:text-[var(--color-primary-dark)] focus-visible:ring-4 focus-visible:ring-[var(--color-primary)]/50 lg:inline-flex"
-                aria-label={sidebar.isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                onClick={sidebar.toggleSidebar}
-              >
-                {sidebar.isSidebarCollapsed ? (
-                  <PanelLeftOpen className="size-4" aria-hidden="true" />
-                ) : (
-                  <PanelLeftClose className="size-4" aria-hidden="true" />
-                )}
-              </Button>
-            }
-            delay={90}
-            closeDelay={0}
-          />
-          <TooltipContent side="bottom">
-            {sidebar.isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          </TooltipContent>
-        </Tooltip>
-      ) : null}
-
       <ol className="flex min-w-0 items-center gap-2 rounded-xl py-2">
         {trail.map((item, index) => {
           const isLast = index === trail.length - 1;
