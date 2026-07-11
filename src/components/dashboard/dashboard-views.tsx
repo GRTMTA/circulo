@@ -1,10 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import {
   CalendarDays,
   ClipboardCheck,
-  FileClock,
-  LayoutDashboard,
   LockKeyhole,
   LucideIcon,
   PiggyBank,
@@ -13,11 +12,14 @@ import {
   ShieldCheck,
   UsersRound,
   WalletCards,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 
-import { AppShell, type AppShellNavigationGroup } from "@/components/dashboard/app-shell";
-import { DashboardShell } from "@/components/dashboard/dashboard-shell";
+// AppShell and DashboardShell imports removed since layout is managed by Next.js layouts.
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,6 +48,10 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import type { FilterOption, FilterSpec } from "@/components/ui/table-filter-bar";
+import { TableFilterBar } from "@/components/ui/table-filter-bar";
+import { CalendarExportButton } from "@/components/calendar/calendar-export-button";
+import { CycleCalendarView } from "@/components/calendar/cycle-calendar-view";
 import type {
   CreatorDashboardDTO,
   DashboardAuditEvent,
@@ -57,51 +63,29 @@ import type {
   MemberDashboardDTO,
 } from "@/lib/dashboard/types";
 
-const creatorNavigation: AppShellNavigationGroup[] = [
-  {
-    heading: "Pool creator",
-    items: [
-      { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, match: "exact" },
-      { label: "Members", href: "/dashboard#members", icon: UsersRound },
-      { label: "Contributions", href: "/dashboard#contributions", icon: PiggyBank },
-      { label: "Audit Log", href: "/dashboard#audit", icon: FileClock },
-    ],
-  },
-];
+// navigation variables removed as sidebar is constructed dynamically by the parent AppShell.
 
-const memberNavigation: AppShellNavigationGroup[] = [
-  {
-    heading: "Pool member",
-    items: [
-      { label: "My Status", href: "/dashboard", icon: LayoutDashboard, match: "exact" },
-      { label: "Pay", href: "/dashboard#pay", icon: WalletCards },
-      { label: "Timeline", href: "/dashboard#timeline", icon: CalendarDays },
-      { label: "Rules", href: "/dashboard#rules", icon: ShieldCheck },
-    ],
-  },
-];
-
-function titleCase(value: string) {
+export function titleCase(value: string) {
   return value
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 }
 
-function formatAmount(value: number, asset = "USDC") {
+export function formatAmount(value: number, asset = "USDC") {
   return `${new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 2,
   }).format(value)} ${asset}`;
 }
 
-function formatInterval(seconds: number) {
+export function formatInterval(seconds: number) {
   const hours = Math.round(seconds / 3600);
   if (hours < 24) return `Every ${hours}h`;
   const days = Math.round(hours / 24);
   return `Every ${days} day${days === 1 ? "" : "s"}`;
 }
 
-function formatDate(value: string | null) {
+export function formatDate(value: string | null) {
   if (!value) return "Not scheduled";
 
   return new Intl.DateTimeFormat("en-US", {
@@ -112,7 +96,7 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
-function shortenWallet(wallet: string) {
+export function shortenWallet(wallet: string) {
   if (wallet.length <= 10) return wallet;
   return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
 }
@@ -133,11 +117,32 @@ function getStatusVariant(status: string): "default" | "secondary" | "outline" |
   return "outline";
 }
 
-function StatusBadge({ status }: { status: string }) {
-  return <Badge variant={getStatusVariant(status)}>{titleCase(status)}</Badge>;
+function getStatusColor(status: string): string {
+  if (["paid", "posted", "accepted", "completed", "ready"].includes(status)) {
+    return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  }
+  if (status === "active" || status === "verifying") {
+    return "bg-blue-50 text-blue-700 border-blue-200";
+  }
+  if (["pending", "draft", "scheduled", "not_due", "delayed", "warning", "invited", "due_soon", "due_now", "grace_period"].includes(status)) {
+    return "bg-amber-50 text-amber-700 border-amber-200";
+  }
+  if (["late", "missed", "disputed", "cancelled", "fully_slashed", "restricted"].includes(status)) {
+    return "bg-red-50 text-red-700 border-red-200";
+  }
+  return "bg-gray-50 text-gray-600 border-gray-200";
 }
 
-function StatCard({
+export function StatusBadge({ status }: { status: string }) {
+  const variant = getStatusVariant(status);
+  return (
+    <Badge variant={variant === "destructive" ? "destructive" : "outline"} className={getStatusColor(status)}>
+      {titleCase(status)}
+    </Badge>
+  );
+}
+
+export function StatCard({
   label,
   value,
   icon: Icon,
@@ -164,7 +169,7 @@ function StatCard({
   );
 }
 
-function SectionCard({
+export function SectionCard({
   title,
   description,
   children,
@@ -184,7 +189,7 @@ function SectionCard({
   );
 }
 
-function getCurrentRound(rounds: DashboardRound[], fallback: number) {
+export function getCurrentRound(rounds: DashboardRound[], fallback: number) {
   return (
     rounds.find((round) => ["active", "late", "grace_period"].includes(round.status)) ??
     rounds.find((round) => round.roundNumber === fallback) ??
@@ -193,50 +198,243 @@ function getCurrentRound(rounds: DashboardRound[], fallback: number) {
   );
 }
 
-function getMemberName(members: DashboardMember[], memberId: string | null) {
+export function getMemberName(members: DashboardMember[], memberId: string | null) {
   if (!memberId) return "Unassigned";
   return members.find((member) => member.id === memberId)?.displayName ?? "Unknown member";
 }
 
-function getProgress(current: number, total: number) {
+function getMemberObject(members: DashboardMember[], memberId: string | null) {
+  if (!memberId) return null;
+  return members.find((member) => member.id === memberId) ?? null;
+}
+
+function MemberAvatar({
+  member,
+  className = "size-6",
+}: {
+  member: DashboardMember | null;
+  className?: string;
+}) {
+  if (!member) {
+    return (
+      <Avatar className={className}>
+        <AvatarFallback>?</AvatarFallback>
+      </Avatar>
+    );
+  }
+  return (
+    <Avatar className={className}>
+      <AvatarImage src={member.avatarUrl ?? undefined} alt={member.displayName} />
+      <AvatarFallback>
+        {member.displayName
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((part) => part[0]?.toUpperCase() ?? "")
+          .join("")}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
+export function getProgress(current: number, total: number) {
   if (total <= 0) return 0;
   return Math.min(100, Math.round((current / total) * 100));
 }
 
-function MemberTable({ members }: { members: DashboardMember[] }) {
+type SortDirection = "asc" | "desc" | null;
+type SortConfig = { key: string; direction: SortDirection };
+
+function useSort(defaultKey: string): [SortConfig, (key: string) => void, <T>(items: T[], extractor: (item: T) => string | number) => T[]] {
+  const [sort, setSort] = useState<SortConfig>({ key: defaultKey, direction: "asc" });
+
+  const toggleSort = (key: string) => {
+    setSort((prev) => {
+      if (prev.key === key) {
+        const next: SortDirection = prev.direction === "asc" ? "desc" : prev.direction === "desc" ? null : "asc";
+        return { key, direction: next };
+      }
+      return { key, direction: "asc" };
+    });
+  };
+
+  const sortFn = <T,>(items: T[], extractor: (item: T) => string | number): T[] => {
+    if (!sort.direction) return items;
+    return [...items].sort((a, b) => {
+      const va = extractor(a);
+      const vb = extractor(b);
+      const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+      return sort.direction === "asc" ? cmp : -cmp;
+    });
+  };
+
+  return [sort, toggleSort, sortFn];
+}
+
+function SortHeader({
+  label,
+  sortKey,
+  sort,
+  onToggle,
+}: {
+  label: string;
+  sortKey: string;
+  sort: SortConfig;
+  onToggle: (key: string) => void;
+}) {
+  const isActive = sort.key === sortKey && sort.direction !== null;
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Member</TableHead>
-          <TableHead>Wallet</TableHead>
-          <TableHead>Invite</TableHead>
-          <TableHead>Agreement</TableHead>
-          <TableHead>Collateral</TableHead>
-          <TableHead>Contribution</TableHead>
-          <TableHead>Payout</TableHead>
-          <TableHead>Restriction</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {members.map((member) => (
-          <TableRow key={member.id}>
-            <TableCell className="font-semibold">{member.displayName}</TableCell>
-            <TableCell className="font-mono text-sm">{shortenWallet(member.walletAddress)}</TableCell>
-            <TableCell><StatusBadge status={member.inviteStatus} /></TableCell>
-            <TableCell><StatusBadge status={member.agreementStatus} /></TableCell>
-            <TableCell><StatusBadge status={member.collateralStatus} /></TableCell>
-            <TableCell><StatusBadge status={member.paymentStatus} /></TableCell>
-            <TableCell>Round {member.payoutRound}</TableCell>
-            <TableCell><StatusBadge status={member.restrictionStatus} /></TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+    <TableHead>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 whitespace-nowrap text-left text-xs font-medium uppercase text-muted-foreground hover:text-foreground"
+        onClick={() => onToggle(sortKey)}
+      >
+        {label}
+        {isActive ? (
+          sort.direction === "asc" ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />
+        ) : (
+          <ArrowUpDown className="size-3 opacity-30" />
+        )}
+      </button>
+    </TableHead>
   );
 }
 
-function ContributionTable({
+export function MemberTable({ members }: { members: DashboardMember[] }) {
+  const [search, setSearch] = useState("");
+  const [filterInvite, setFilterInvite] = useState<string | null>(null);
+  const [filterAgreement, setFilterAgreement] = useState<string | null>(null);
+  const [filterCollateral, setFilterCollateral] = useState<string | null>(null);
+  const [filterPayment, setFilterPayment] = useState<string | null>(null);
+  const [filterRestriction, setFilterRestriction] = useState<string | null>(null);
+  const [sort, toggleSort, sortFn] = useSort("displayName");
+
+  const statusOptions = (statuses: string[]): FilterOption[] =>
+    statuses.map((s) => ({ value: s, label: titleCase(s) }));
+
+  const inviteStatuses = ["accepted", "invited", "declined", "expired"] as const;
+  const agreementStatuses = ["accepted", "pending"] as const;
+  const collateralStatuses = ["not_posted", "posted", "partially_slashed", "fully_slashed"] as const;
+  const paymentStatuses = ["paid", "pending", "late", "missed", "not_due", "disputed"] as const;
+  const restrictionStatuses = ["clear", "warning", "restricted"] as const;
+
+  const filtered = members.filter((m) => {
+    const q = search.toLowerCase();
+    const matchesSearch = !q || m.displayName.toLowerCase().includes(q) || m.walletAddress.toLowerCase().includes(q);
+    const matchesInvite = !filterInvite || m.inviteStatus === filterInvite;
+    const matchesAgreement = !filterAgreement || m.agreementStatus === filterAgreement;
+    const matchesCollateral = !filterCollateral || m.collateralStatus === filterCollateral;
+    const matchesPayment = !filterPayment || m.paymentStatus === filterPayment;
+    const matchesRestriction = !filterRestriction || m.restrictionStatus === filterRestriction;
+    return matchesSearch && matchesInvite && matchesAgreement && matchesCollateral && matchesPayment && matchesRestriction;
+  });
+
+  const sorted = sortFn(filtered, (m) => {
+    switch (sort.key) {
+      case "displayName": return m.displayName;
+      case "walletAddress": return m.walletAddress;
+      case "inviteStatus": return m.inviteStatus;
+      case "agreementStatus": return m.agreementStatus;
+      case "collateralStatus": return m.collateralStatus;
+      case "paymentStatus": return m.paymentStatus;
+      case "payoutRound": return m.payoutRound;
+      case "restrictionStatus": return m.restrictionStatus;
+      default: return m.displayName;
+    }
+  });
+
+  const hasActiveFilters = !!search || !!filterInvite || !!filterAgreement || !!filterCollateral || !!filterPayment || !!filterRestriction;
+
+  const filters: FilterSpec[] = [
+    { id: "invite", label: "Invite", value: filterInvite, options: statusOptions([...inviteStatuses]), onChange: setFilterInvite },
+    { id: "agreement", label: "Agreement", value: filterAgreement, options: statusOptions([...agreementStatuses]), onChange: setFilterAgreement },
+    { id: "collateral", label: "Collateral", value: filterCollateral, options: statusOptions([...collateralStatuses]), onChange: setFilterCollateral },
+    { id: "payment", label: "Contribution", value: filterPayment, options: statusOptions([...paymentStatuses]), onChange: setFilterPayment },
+    { id: "restriction", label: "Restriction", value: filterRestriction, options: statusOptions([...restrictionStatuses]), onChange: setFilterRestriction },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <TableFilterBar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search by name or wallet..."
+        filters={filters}
+        totalCount={members.length}
+        filteredCount={sorted.length}
+        onClearFilters={() => {
+          setSearch("");
+          setFilterInvite(null);
+          setFilterAgreement(null);
+          setFilterCollateral(null);
+          setFilterPayment(null);
+          setFilterRestriction(null);
+        }}
+        hasActiveFilters={hasActiveFilters}
+      />
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <SortHeader label="Member" sortKey="displayName" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Wallet" sortKey="walletAddress" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Invite" sortKey="inviteStatus" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Agreement" sortKey="agreementStatus" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Collateral" sortKey="collateralStatus" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Contribution" sortKey="paymentStatus" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Payout" sortKey="payoutRound" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Restriction" sortKey="restrictionStatus" sort={sort} onToggle={toggleSort} />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {sorted.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
+                No members match your filters.
+                {hasActiveFilters ? (
+                  <button
+                    type="button"
+                    className="ml-1 font-medium text-primary underline"
+                    onClick={() => {
+                      setSearch("");
+                      setFilterInvite(null);
+                      setFilterAgreement(null);
+                      setFilterCollateral(null);
+                      setFilterPayment(null);
+                      setFilterRestriction(null);
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                ) : null}
+              </TableCell>
+            </TableRow>
+          ) : (
+            sorted.map((member) => (
+              <TableRow key={member.id}>
+                <TableCell>
+                  <div className="flex items-center gap-3">
+                    <MemberAvatar member={member} className="size-8" />
+                    <span className="font-semibold">{member.displayName}</span>
+                  </div>
+                </TableCell>
+                <TableCell className="font-mono text-sm">{shortenWallet(member.walletAddress)}</TableCell>
+                <TableCell><StatusBadge status={member.inviteStatus} /></TableCell>
+                <TableCell><StatusBadge status={member.agreementStatus} /></TableCell>
+                <TableCell><StatusBadge status={member.collateralStatus} /></TableCell>
+                <TableCell><StatusBadge status={member.paymentStatus} /></TableCell>
+                <TableCell>Round {member.payoutRound}</TableCell>
+                <TableCell><StatusBadge status={member.restrictionStatus} /></TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+export function ContributionTable({
   contributions,
   members,
   asset,
@@ -245,37 +443,101 @@ function ContributionTable({
   members: DashboardMember[];
   asset: string;
 }) {
+  const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
+  const [sort, toggleSort, sortFn] = useSort("memberName");
+
+  const contributionStatuses = ["paid", "pending", "late", "missed", "not_due", "disputed", "due_soon", "due_now", "verifying", "grace_period"] as const;
+
+  const filtered = contributions.filter((c) => {
+    const q = search.toLowerCase();
+    const memberName = getMemberName(members, c.memberId).toLowerCase();
+    const matchesSearch = !q || memberName.includes(q);
+    const matchesStatus = !filterStatus || c.status === filterStatus;
+    return matchesSearch && matchesStatus;
+  });
+
+  const sorted = sortFn(filtered, (c) => {
+    switch (sort.key) {
+      case "memberName": return getMemberName(members, c.memberId);
+      case "amountDue": return c.amountDue;
+      case "status": return c.status;
+      case "paidAt": return c.paidAt ?? "";
+      default: return getMemberName(members, c.memberId);
+    }
+  });
+
+  const hasActiveFilters = !!search || !!filterStatus;
+  const statusOptions: FilterOption[] = contributionStatuses.map((s) => ({ value: s, label: titleCase(s) }));
+  const filters: FilterSpec[] = [
+    { id: "status", label: "Status", value: filterStatus, options: statusOptions, onChange: setFilterStatus },
+  ];
+
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Member</TableHead>
-          <TableHead>Amount Due</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>TX Hash</TableHead>
-          <TableHead>Time Paid</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {contributions.map((contribution) => (
-          <TableRow key={contribution.id}>
-            <TableCell className="font-semibold">
-              {getMemberName(members, contribution.memberId)}
-            </TableCell>
-            <TableCell>{formatAmount(contribution.amountDue, asset)}</TableCell>
-            <TableCell><StatusBadge status={contribution.status} /></TableCell>
-            <TableCell className="font-mono text-sm">
-              {contribution.txHash ? shortenWallet(contribution.txHash) : "-"}
-            </TableCell>
-            <TableCell>{formatDate(contribution.paidAt)}</TableCell>
+    <div className="space-y-4">
+      <TableFilterBar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search by member name..."
+        filters={filters}
+        totalCount={contributions.length}
+        filteredCount={sorted.length}
+        onClearFilters={() => { setSearch(""); setFilterStatus(null); }}
+        hasActiveFilters={hasActiveFilters}
+      />
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <SortHeader label="Member" sortKey="memberName" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Amount Due" sortKey="amountDue" sort={sort} onToggle={toggleSort} />
+            <SortHeader label="Status" sortKey="status" sort={sort} onToggle={toggleSort} />
+            <TableHead>TX Hash</TableHead>
+            <SortHeader label="Time Paid" sortKey="paidAt" sort={sort} onToggle={toggleSort} />
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {sorted.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                No contributions match your filters.
+                {hasActiveFilters ? (
+                  <button
+                    type="button"
+                    className="ml-1 font-medium text-primary underline"
+                    onClick={() => { setSearch(""); setFilterStatus(null); }}
+                  >
+                    Clear filters
+                  </button>
+                ) : null}
+              </TableCell>
+            </TableRow>
+          ) : (
+            sorted.map((contribution) => (
+              <TableRow key={contribution.id}>
+                <TableCell>
+                  <div className="flex items-center gap-3">
+                    <MemberAvatar member={getMemberObject(members, contribution.memberId)} className="size-8" />
+                    <span className="font-semibold">
+                      {getMemberName(members, contribution.memberId)}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell>{formatAmount(contribution.amountDue, asset)}</TableCell>
+                <TableCell><StatusBadge status={contribution.status} /></TableCell>
+                <TableCell className="font-mono text-sm">
+                  {contribution.txHash ? shortenWallet(contribution.txHash) : "-"}
+                </TableCell>
+                <TableCell>{formatDate(contribution.paidAt)}</TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 
-function PayoutTimeline({
+export function PayoutTimeline({
   payouts,
   members,
 }: {
@@ -289,9 +551,10 @@ function PayoutTimeline({
           key={payout.id}
           className="grid gap-3 rounded-xl border border-border bg-white p-4 sm:grid-cols-[auto_1fr_auto]"
         >
-          <div className="flex size-11 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary">
-            {payout.roundNumber}
-          </div>
+          <MemberAvatar
+            member={getMemberObject(members, payout.recipientMemberId)}
+            className="size-11"
+          />
           <div>
             <p className="font-semibold">{getMemberName(members, payout.recipientMemberId)}</p>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -326,11 +589,16 @@ function AuditList({
   return (
     <div className="grid gap-3">
       {events.map((event) => (
-        <div key={event.id} className="rounded-xl border border-border bg-white p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="font-semibold">{titleCase(event.eventType)}</p>
-            <span className="text-sm text-muted-foreground">{formatDate(event.createdAt)}</span>
-          </div>
+          <div key={event.id} className="rounded-xl border border-border bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {event.memberId ? (
+                  <MemberAvatar member={getMemberObject(members, event.memberId)} className="size-7" />
+                ) : null}
+                <p className="font-semibold">{titleCase(event.eventType)}</p>
+              </div>
+              <span className="text-sm text-muted-foreground">{formatDate(event.createdAt)}</span>
+            </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {event.memberId ? getMemberName(members, event.memberId) : "Circle event"}
             {event.roundNumber ? `, round ${event.roundNumber}` : ""}
@@ -342,7 +610,13 @@ function AuditList({
   );
 }
 
-function CreatorDashboard({ data }: { data: CreatorDashboardDTO }) {
+function CreatorDashboard({
+  data,
+  isTabContentOnly = false,
+}: {
+  data: CreatorDashboardDTO;
+  isTabContentOnly?: boolean;
+}) {
   const currentRound = getCurrentRound(data.rounds, data.circle.currentRound);
   const postedCollateral = data.members.filter((member) => member.collateralStatus === "posted").length;
   const acceptedMembers = data.members.filter((member) => member.inviteStatus === "accepted").length;
@@ -358,23 +632,8 @@ function CreatorDashboard({ data }: { data: CreatorDashboardDTO }) {
     data.circle.settingsLocked &&
     data.circle.rulesLocked;
 
-  return (
-    <Tabs defaultValue="overview" className="gap-5">
-      <TabsList className="max-w-full overflow-x-auto" variant="line">
-        {[
-          ["overview", "Overview"],
-          ["activation", "Activation Gate"],
-          ["members", "Members & Collateral"],
-          ["contributions", "Contributions"],
-          ["payouts", "Payout Order"],
-          ["calendar", "Cycle Calendar"],
-          ["defaults", "Default Protection"],
-          ["audit", "Audit Log"],
-          ["settings", "Pool Settings"],
-        ].map(([value, label]) => (
-          <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
-        ))}
-      </TabsList>
+  const tabContent = (
+    <>
 
       <TabsContent value="overview" className="grid gap-6">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -453,7 +712,15 @@ function CreatorDashboard({ data }: { data: CreatorDashboardDTO }) {
 
       <TabsContent value="calendar">
         <SectionCard title="Cycle Calendar" description="Contribution due dates, payout dates, grace windows, and status markers.">
-          <PayoutTimeline payouts={data.payouts} members={data.members} />
+          <div className="mb-4 flex justify-end">
+            <CalendarExportButton events={[]} circleName={data.circle.name} />
+          </div>
+          <CycleCalendarView
+            rounds={data.rounds}
+            payouts={data.payouts}
+            contributions={data.contributions}
+            members={data.members}
+          />
         </SectionCard>
       </TabsContent>
 
@@ -483,11 +750,42 @@ function CreatorDashboard({ data }: { data: CreatorDashboardDTO }) {
           </div>
         </SectionCard>
       </TabsContent>
+    </>
+  );
+
+  if (isTabContentOnly) {
+    return tabContent;
+  }
+
+  return (
+    <Tabs defaultValue="overview" className="gap-5">
+      <TabsList className="max-w-full overflow-x-auto" variant="line">
+        {[
+          ["overview", "Overview"],
+          ["activation", "Activation Gate"],
+          ["members", "Members & Collateral"],
+          ["contributions", "Contributions"],
+          ["payouts", "Payout Order"],
+          ["calendar", "Cycle Calendar"],
+          ["defaults", "Default Protection"],
+          ["audit", "Audit Log"],
+          ["settings", "Pool Settings"],
+        ].map(([value, label]) => (
+          <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
+        ))}
+      </TabsList>
+      {tabContent}
     </Tabs>
   );
 }
 
-function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
+function MemberDashboard({
+  data,
+  isTabContentOnly = false,
+}: {
+  data: MemberDashboardDTO;
+  isTabContentOnly?: boolean;
+}) {
   const currentRound = getCurrentRound(data.rounds, data.circle.currentRound);
   const myContribution = data.contributions.find(
     (contribution) =>
@@ -497,22 +795,22 @@ function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
   const paidMembers = data.contributions.filter((contribution) => contribution.status === "paid").length;
   const pendingMembers = data.contributions.filter((contribution) => ["pending", "due_now", "due_soon"].includes(contribution.status)).length;
   const lateMembers = data.contributions.filter((contribution) => ["late", "grace_period", "missed"].includes(contribution.status)).length;
+  const postedCollateral = data.members.filter((m) => m.collateralStatus === "posted").length;
+  const missingContributions = data.members.length - data.contributions.filter(c => c.roundId === currentRound?.id && c.status === "paid").length;
 
-  return (
-    <Tabs defaultValue="status" className="gap-5">
-      <TabsList className="max-w-full overflow-x-auto" variant="line">
-        {[
-          ["status", "My Status"],
-          ["pay", "Pay Contribution"],
-          ["timeline", "Payout Timeline"],
-          ["transparency", "Group Transparency"],
-          ["collateral", "Collateral Status"],
-          ["rules", "Rules & Agreement"],
-          ["notifications", "Notifications"],
-        ].map(([value, label]) => (
-          <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
-        ))}
-      </TabsList>
+  const tabContent = (
+    <>
+
+      <TabsContent value="overview" className="grid gap-6">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <StatCard label="Pool Status" value={titleCase(data.circle.status)} icon={ShieldCheck} />
+          <StatCard label="Collateral Posted" value={`${postedCollateral} / ${data.members.length}`} icon={LockKeyhole} />
+          <StatCard label="Current Round" value={`Round ${data.circle.currentRound}`} detail={`of ${data.circle.totalRounds}`} icon={CalendarDays} />
+          <StatCard label="Collected" value={formatAmount(currentRound?.collectedAmount ?? 0, data.circle.contributionAmount > 0 ? data.circle.contributionAsset : "")} detail={`Expected ${formatAmount(currentRound?.expectedAmount ?? 0, data.circle.contributionAmount > 0 ? data.circle.contributionAsset : "")}`} icon={PiggyBank} />
+          <StatCard label="Next Due" value={formatDate(currentRound?.dueAt ?? null)} icon={ClipboardCheck} />
+          <StatCard label="Missing Contributions" value={`${Math.max(0, missingContributions)} member${missingContributions === 1 ? "" : "s"}`} icon={ShieldAlert} />
+        </div>
+      </TabsContent>
 
       <TabsContent value="status" className="grid gap-6">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -602,6 +900,30 @@ function MemberDashboard({ data }: { data: MemberDashboardDTO }) {
           )}
         </SectionCard>
       </TabsContent>
+    </>
+  );
+
+  if (isTabContentOnly) {
+    return tabContent;
+  }
+
+  return (
+    <Tabs defaultValue="overview" className="gap-5">
+      <TabsList className="max-w-full overflow-x-auto" variant="line">
+        {[
+          ["overview", "Overview"],
+          ["status", "My Status"],
+          ["pay", "Pay Contribution"],
+          ["timeline", "Payout Timeline"],
+          ["transparency", "Group Transparency"],
+          ["collateral", "Collateral Status"],
+          ["rules", "Rules & Agreement"],
+          ["notifications", "Notifications"],
+        ].map(([value, label]) => (
+          <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
+        ))}
+      </TabsList>
+      {tabContent}
     </Tabs>
   );
 }
@@ -621,43 +943,18 @@ function DashboardEmptyState({ configured }: { configured: boolean }) {
   );
 }
 
-export function DashboardViews({ data }: { data: DashboardDTO }) {
-  const navigation = data.role === "member" ? memberNavigation : creatorNavigation;
-  const title =
-    data.role === "empty"
-      ? "Circulo"
-      : data.role === "creator"
-        ? "Creator dashboard"
-        : "Member dashboard";
-
-  return (
-    <AppShell
-      navigation={navigation}
-      brand={{
-        title: "Circulo",
-        href: "/dashboard",
-        full: <span className="font-heading text-xl">Circulo</span>,
-        compact: <span className="font-heading text-lg">C</span>,
-      }}
-      notificationCount={data.role === "member" ? data.notifications.length : undefined}
-    >
-      <DashboardShell
-        title={title}
-        description={
-          data.role === "empty"
-            ? "Invite-only rotating savings circles will appear here after setup or acceptance."
-            : `${data.circle.name} keeps the fixed roster, contribution rules, and payout order visible.`
-        }
-        breadcrumbItems={[]}
-      >
-        {data.role === "creator" ? (
-          <CreatorDashboard data={data} />
-        ) : data.role === "member" ? (
-          <MemberDashboard data={data} />
-        ) : (
-          <DashboardEmptyState configured={data.configured} />
-        )}
-      </DashboardShell>
-    </AppShell>
-  );
+export function DashboardViews({
+  data,
+  isTabContentOnly = false,
+}: {
+  data: DashboardDTO;
+  isTabContentOnly?: boolean;
+}) {
+  if (data.role === "creator") {
+    return <CreatorDashboard data={data} isTabContentOnly={isTabContentOnly} />;
+  }
+  if (data.role === "member") {
+    return <MemberDashboard data={data} isTabContentOnly={isTabContentOnly} />;
+  }
+  return <DashboardEmptyState configured={data.configured} />;
 }

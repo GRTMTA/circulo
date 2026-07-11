@@ -2,16 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Bell,
+  CircleDot,
+  LayoutDashboard,
   Menu,
-  PanelLeftClose,
-  PanelLeftOpen,
   Search,
   type LucideIcon,
 } from "lucide-react";
 
+// CircleSwitcher import removed as it is now redundant.
 import { SidebarProvider } from "@/components/dashboard/sidebar-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import type { CircleListItem } from "@/lib/dashboard/types";
 import { cn } from "@/lib/utils";
 
 export interface AppShellNavigationItem {
@@ -30,6 +32,7 @@ export interface AppShellNavigationItem {
   href: string;
   icon: LucideIcon;
   match?: "exact" | "startsWith";
+  subItems?: readonly AppShellNavigationItem[];
 }
 
 export interface AppShellNavigationGroup {
@@ -55,7 +58,6 @@ export interface AppShellBrand {
 
 interface AppShellProps {
   children: React.ReactNode;
-  navigation: readonly AppShellNavigationGroup[];
   brand?: AppShellBrand;
   user?: AppShellUser;
   headerSearch?: React.ReactNode;
@@ -63,7 +65,10 @@ interface AppShellProps {
   sidebarFooter?: React.ReactNode;
   notificationCount?: number;
   defaultCollapsed?: boolean;
+  circles?: CircleListItem[];
 }
+
+// defaultNavigation constant removed.
 
 function matchesNavPath(pathname: string, item: AppShellNavigationItem) {
   if (item.match === "startsWith") {
@@ -81,6 +86,8 @@ function getInitials(name: string) {
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
 }
+
+// inferCircleId helper removed.
 
 function BrandMark({
   brand,
@@ -143,6 +150,17 @@ function NavigationGroup({
   onNavigate?: () => void;
   collapsed?: boolean;
 }) {
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({
+    "All Circles": true,
+  });
+
+  const toggleExpand = (label: string) => {
+    setExpandedItems((prev) => ({
+      ...prev,
+      [label]: !prev[label],
+    }));
+  };
+
   return (
     <div className="space-y-1">
       {heading ? (
@@ -158,29 +176,66 @@ function NavigationGroup({
       <div className="space-y-0.5">
         {items.map((item) => {
           const isActive = matchesNavPath(pathname, item);
+          const hasSubItems = item.subItems && item.subItems.length > 0;
+          const isExpanded = expandedItems[item.label] ?? false;
 
           return (
-            <Button
-              key={item.label}
-              render={<Link href={item.href} />}
-              nativeButton={false}
-              variant="ghost"
-              className={cn(
-                "rounded-lg text-[0.8rem] font-semibold",
-                collapsed
-                  ? "mx-auto h-9 w-9 justify-center px-0"
-                  : "h-8 w-full justify-start gap-2 px-2.5",
-                isActive
-                  ? "bg-[var(--color-primary-muted)] text-[var(--color-primary-default)] hover:bg-[var(--color-primary-muted)]"
-                  : "text-[var(--color-text-alternative)] hover:bg-[var(--color-background-muted)] hover:text-[var(--color-text-default)]"
+            <div key={item.label} className="space-y-0.5">
+              <Button
+                key={item.label}
+                render={<Link href={item.href} />}
+                nativeButton={false}
+                variant="ghost"
+                className={cn(
+                  "rounded-lg text-[0.8rem] font-semibold w-full justify-start gap-2 px-2.5",
+                  collapsed
+                    ? "mx-auto h-9 w-9 justify-center px-0"
+                    : "h-8",
+                  isActive
+                    ? "bg-[var(--color-primary-muted)] text-[var(--color-primary-default)] hover:bg-[var(--color-primary-muted)]"
+                    : "text-[var(--color-text-alternative)] hover:bg-[var(--color-background-muted)] hover:text-[var(--color-text-default)]"
+                )}
+                aria-label={collapsed ? item.label : undefined}
+                aria-current={isActive ? "page" : undefined}
+                onClick={() => {
+                  if (hasSubItems) {
+                    toggleExpand(item.label);
+                  }
+                  if (onNavigate) {
+                    onNavigate();
+                  }
+                }}
+              >
+                <item.icon className="size-3.5" />
+                <span className={collapsed ? "sr-only" : undefined}>{item.label}</span>
+              </Button>
+
+              {!collapsed && hasSubItems && isExpanded && (
+                <div className="pl-6 space-y-0.5 border-l border-[var(--color-border-muted)] ml-4">
+                  {item.subItems?.map((subItem) => {
+                    const isSubActive = matchesNavPath(pathname, subItem);
+                    return (
+                      <Button
+                        key={subItem.label}
+                        render={<Link href={subItem.href} />}
+                        nativeButton={false}
+                        variant="ghost"
+                        className={cn(
+                          "rounded-lg text-[0.75rem] font-medium h-7 w-full justify-start gap-2 px-2.5",
+                          isSubActive
+                            ? "bg-[var(--color-primary-muted)] text-[var(--color-primary-default)] hover:bg-[var(--color-primary-muted)]"
+                            : "text-[var(--color-text-alternative)] hover:bg-[var(--color-background-muted)] hover:text-[var(--color-text-default)]"
+                        )}
+                        onClick={onNavigate}
+                      >
+                        <subItem.icon className="size-3.5" />
+                        <span>{subItem.label}</span>
+                      </Button>
+                    );
+                  })}
+                </div>
               )}
-              aria-label={collapsed ? item.label : undefined}
-              aria-current={isActive ? "page" : undefined}
-              onClick={onNavigate}
-            >
-              <item.icon className="size-3.5" />
-              <span className={collapsed ? "sr-only" : undefined}>{item.label}</span>
-            </Button>
+            </div>
           );
         })}
       </div>
@@ -190,7 +245,6 @@ function NavigationGroup({
 
 export function AppShell({
   children,
-  navigation,
   brand = {
     title: "Application",
     href: "/",
@@ -200,12 +254,42 @@ export function AppShell({
   headerActions,
   sidebarFooter,
   notificationCount,
-  defaultCollapsed = false,
+  defaultCollapsed = true,
+  circles = [],
 }: AppShellProps) {
   const pathname = usePathname();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(defaultCollapsed);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const userInitials = user?.avatarFallback ?? (user ? getInitials(user.name) : "U");
+  const visibleNavigation = useMemo<AppShellNavigationGroup[]>(() => {
+    const circleItemsList: AppShellNavigationItem[] = [];
+
+    circles.forEach((circle) => {
+      const circleBase = `/dashboard/${circle.id}`;
+
+      circleItemsList.push({
+        label: circle.name,
+        href: circleBase,
+        icon: CircleDot,
+        match: "startsWith",
+      });
+    });
+
+    return [
+      {
+        heading: "Circles",
+        items: [
+          {
+            label: "All Circles",
+            href: "/dashboard",
+            icon: LayoutDashboard,
+            match: "exact",
+            subItems: circleItemsList,
+          },
+        ],
+      },
+    ];
+  }, [circles]);
 
   return (
     <SidebarProvider
@@ -216,27 +300,8 @@ export function AppShell({
     >
       <div className="min-h-screen bg-[var(--color-background-section)] text-[var(--color-text-default)]">
         <header className="fixed inset-x-0 top-0 z-30 h-[76px] border-b border-[var(--color-border-muted)] bg-[color:color-mix(in_srgb,var(--color-background-default)_92%,transparent)] backdrop-blur-md">
-          <div
-            className={cn(
-              "flex h-full items-center justify-between gap-4 px-4 transition-[padding] duration-200 sm:px-6",
-              isSidebarCollapsed ? "lg:pl-[116px]" : "lg:pl-[292px]"
-            )}
-          >
+          <div className="flex h-full items-center justify-between gap-4 px-4 sm:px-6 lg:pl-[116px]">
             <div className="flex min-w-0 items-center gap-3">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="hidden size-10 rounded-xl text-[var(--color-text-alternative)] hover:bg-[var(--color-background-muted)] hover:text-[var(--color-primary-default)] lg:inline-flex"
-                aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                onClick={() => setIsSidebarCollapsed((current) => !current)}
-              >
-                {isSidebarCollapsed ? (
-                  <PanelLeftOpen className="size-4" />
-                ) : (
-                  <PanelLeftClose className="size-4" />
-                )}
-              </Button>
               <Button
                 type="button"
                 variant="ghost"
@@ -347,7 +412,7 @@ export function AppShell({
             </SheetHeader>
             <ScrollArea className="flex-1 px-3 py-3">
               <div className="space-y-3 pb-4">
-                {navigation.map((group, index) => (
+                {visibleNavigation.map((group, index) => (
                   <NavigationGroup
                     key={`${group.heading ?? "group"}-${index.toString()}`}
                     heading={group.heading}
@@ -368,9 +433,11 @@ export function AppShell({
 
         <aside
           className={cn(
-            "fixed top-0 bottom-0 left-0 z-40 hidden bg-[var(--color-background-default)] transition-[width] duration-200 lg:block",
-            isSidebarCollapsed ? "w-[84px]" : "w-[260px]"
+            "fixed top-0 bottom-0 left-0 z-40 hidden bg-[var(--color-background-default)] transition-[width,box-shadow] duration-200 lg:block border-r border-[var(--color-border-muted)]",
+            isSidebarCollapsed ? "w-[84px]" : "w-[260px] shadow-2xl"
           )}
+          onMouseEnter={() => setIsSidebarCollapsed(false)}
+          onMouseLeave={() => setIsSidebarCollapsed(true)}
         >
           <div className="flex h-full flex-col">
             <div
@@ -383,7 +450,7 @@ export function AppShell({
             </div>
             <ScrollArea className={cn("flex-1 py-3", isSidebarCollapsed ? "px-2" : "px-3")}>
               <div className={cn("space-y-3", isSidebarCollapsed && "space-y-2")}>
-                {navigation.map((group, index) => (
+                {visibleNavigation.map((group, index) => (
                   <NavigationGroup
                     key={`${group.heading ?? "group"}-${index.toString()}`}
                     heading={group.heading}
@@ -407,12 +474,7 @@ export function AppShell({
           </div>
         </aside>
 
-        <main
-          className={cn(
-            "px-4 pb-8 pt-[96px] transition-[padding] duration-200 sm:px-6 lg:pr-6",
-            isSidebarCollapsed ? "lg:pl-[108px]" : "lg:pl-[284px]"
-          )}
-        >
+        <main className="px-4 pb-8 pt-[96px] sm:px-6 lg:pr-6 lg:pl-[108px]">
           {children}
         </main>
       </div>
