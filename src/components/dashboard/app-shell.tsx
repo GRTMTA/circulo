@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
+import { logoutAction } from "@/app/auth/actions";
 import {
   Bell,
   CircleDot,
@@ -392,6 +393,17 @@ export function AppShell({
                         ) : null}
                       </div>
                     ) : null}
+                    <div className="mt-2 border-t border-[var(--color-border-muted)] pt-2 px-1">
+                      <Button
+                        variant="ghost"
+                        className="w-full justify-start text-[0.8rem] font-semibold text-[var(--color-error-default)] hover:bg-[var(--color-error-muted)] hover:text-[var(--color-error-default)]"
+                        onClick={async () => {
+                          await logoutAction();
+                        }}
+                      >
+                        Sign Out
+                      </Button>
+                    </div>
                   </PopoverContent>
                 </Popover>
               ) : null}
