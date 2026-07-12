@@ -61,6 +61,8 @@ import {
   resumeCircleAction,
   cancelCircleAction,
 } from "@/app/dashboard/actions";
+import { ContributionReminderBanner } from "@/components/reminders/contribution-reminder-banner";
+import { ReminderSettingsPanel } from "@/components/reminders/reminder-settings-panel";
 import type {
   CreatorDashboardDTO,
   DashboardAuditEvent,
@@ -832,6 +834,12 @@ function MemberDashboard({
     <>
 
       <TabsContent value="overview" className="grid gap-6">
+        <ContributionReminderBanner
+          currentRound={currentRound ?? null}
+          myContribution={myContribution}
+          contributionAmount={data.circle.contributionAmount}
+          contributionAsset={data.circle.contributionAsset}
+        />
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <StatCard label="Pool Status" value={titleCase(data.circle.status)} icon={ShieldCheck} />
           <StatCard label="Collateral Posted" value={`${postedCollateral} / ${data.members.length}`} icon={LockKeyhole} />
@@ -912,7 +920,7 @@ function MemberDashboard({
         <EmergencyRulesDisplay />
       </TabsContent>
 
-      <TabsContent value="notifications">
+      <TabsContent value="notifications" className="grid gap-6">
         <SectionCard title="Notifications" description="Member-facing status updates and action reminders.">
           {data.notifications.length > 0 ? (
             <div className="grid gap-3">
@@ -930,6 +938,9 @@ function MemberDashboard({
             <p className="text-sm text-muted-foreground">No notifications yet.</p>
           )}
         </SectionCard>
+        <ReminderSettingsPanel
+          reminderScheduleHours={data.circle.reminderScheduleHours}
+        />
       </TabsContent>
     </>
   );
