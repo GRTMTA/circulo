@@ -100,7 +100,7 @@ function CircleCard({ circle }: { circle: CircleListItem }) {
 
 export function CircleList({ circles }: { circles: CirclesDTO }) {
   const createButton = (
-    <Button render={<Link href="/dashboard/create" />} nativeButton={false}>
+    <Button render={<Link href="/dashboard/create" />} nativeButton={false} data-onboarding="create-circle">
       <PlusCircle className="size-4" />
       Create Circle
     </Button>
@@ -114,11 +114,13 @@ export function CircleList({ circles }: { circles: CirclesDTO }) {
         breadcrumbItems={[]}
         headerTopRow={createButton}
       >
-        <EmptyState
-          icon={<UsersRound className="size-8" />}
-          title="No circles yet"
-          description="Circulo keeps every pool invite-only, fixed-roster, and rule-locked before activation."
-        />
+        <div data-onboarding="circle-cards">
+          <EmptyState
+            icon={<UsersRound className="size-8" />}
+            title="No circles yet"
+            description="Circulo keeps every pool invite-only, fixed-roster, and rule-locked before activation."
+          />
+        </div>
       </DashboardShell>
     );
   }
@@ -130,10 +132,12 @@ export function CircleList({ circles }: { circles: CirclesDTO }) {
       breadcrumbItems={[]}
       headerTopRow={createButton}
     >
-      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-        {circles.map((circle) => (
-          <CircleCard key={circle.id} circle={circle} />
-        ))}
+      <div data-onboarding="circle-cards" className="grid gap-4">
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          {circles.map((circle) => (
+            <CircleCard key={circle.id} circle={circle} />
+          ))}
+        </div>
       </div>
       <div className="rounded-2xl border border-border bg-white p-4 text-sm text-muted-foreground">
         <CalendarDays className="mr-2 inline size-4 text-primary" />

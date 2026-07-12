@@ -10,6 +10,7 @@ export interface Profile {
   full_name: string | null;
   created_at: string;
   updated_at: string;
+  onboarding_completed_at: string | null;
 }
 
 interface OptionalAuthContext {
@@ -54,7 +55,7 @@ export async function getOptionalAuthContext(): Promise<OptionalAuthContext> {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id,email,full_name,created_at,updated_at")
+    .select("id,email,full_name,created_at,updated_at,onboarding_completed_at")
     .eq("id", user.id)
     .maybeSingle<Profile>();
 
