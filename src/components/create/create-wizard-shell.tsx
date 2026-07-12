@@ -18,6 +18,7 @@ import {
   mockCreatePayoutOrderState,
   mockCreateRosterState,
 } from "@/lib/mocks";
+import { createCircleAction } from "@/app/dashboard/actions";
 
 const steps = ["Basics", "Roster", "Collateral", "Payout Order", "Review"];
 
@@ -28,6 +29,7 @@ export function CreateWizardShell() {
   const [roster, setRoster] = useState(mockCreateRosterState);
   const [collateral, setCollateral] = useState(mockCreateCollateralState);
   const [payoutOrder, setPayoutOrder] = useState(mockCreatePayoutOrderState);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   return (
     <Card className="trust-ledger-surface">
@@ -52,25 +54,56 @@ export function CreateWizardShell() {
         {step === 3 ? <CreatePayoutOrderStep order={payoutOrder} onReorder={setPayoutOrder} /> : null}
         {step === 4 ? <CreateReviewStep basics={basics} roster={roster} collateral={collateral} payoutOrder={payoutOrder} /> : null}
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
-          <Button type="button" variant="outline" disabled={step === 0} onClick={() => setStep((current) => Math.max(0, current - 1))}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={step === 0 || isSubmitting}
+            onClick={() => setStep((current) => Math.max(0, current - 1))}
+          >
             Back
           </Button>
           <Button
             type="button"
-            onClick={() => {
+            disabled={isSubmitting}
+            onClick={async () => {
               if (step < steps.length - 1) {
                 setStep((current) => current + 1);
                 return;
               }
-              toast.success("Circle draft created");
-              router.push("/dashboard/circle-quezon-draft");
+
+              setIsSubmitting(true);
+              try {
+                const res = await createCircleAction(basics, roster, collateral, payoutOrder);
+                if (res.success && res.circleId) {
+                  toast.success("Circle draft created successfully");
+                  router.push(`/dashboard/${res.circleId}`);
+                  router.refresh();
+                } else {
+                  if (res.error === "Supabase not configured") {
+                    // Fallback to mock mode
+                    toast.success("Circle draft created (mock mode)");
+                    router.push("/dashboard/circle-quezon-draft");
+                    router.refresh();
+                  } else {
+                    toast.error(res.error || "Failed to create circle");
+                  }
+                }
+              } catch (err) {
+                const message = err instanceof Error ? err.message : "Failed to create circle";
+                toast.error(message);
+              } finally {
+                setIsSubmitting(false);
+              }
             }}
           >
-            {step === steps.length - 1 ? "Create Circle" : "Next"}
+            {isSubmitting
+              ? "Creating..."
+              : step === steps.length - 1
+              ? "Create Circle"
+              : "Next"}
           </Button>
         </div>
       </CardContent>
     </Card>
   );
 }
-
