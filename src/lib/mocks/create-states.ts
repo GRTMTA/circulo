@@ -30,9 +30,9 @@ export const mockCreateBasicsState: CreateBasicsState = {
 };
 
 export const mockCreateRosterState: CreateRosterMember[] = [
-  { displayName: "Ari Santos", walletAddress: "GABC91A2CREATOR000000000000000000000000000000000000000001" },
-  { displayName: "Bea Lim", walletAddress: "GDEF22FPENDING000000000000000000000000000000000000000002" },
-  { displayName: "Carlo Reyes", walletAddress: "GHIJ8KQLATE00000000000000000000000000000000000000000003" },
+  { displayName: "Ari Santos", walletAddress: "GAAAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNOOOPPPQQQRRR2" },
+  { displayName: "Bea Lim", walletAddress: "GAAAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNOOOPPPQQQRRR3" },
+  { displayName: "Carlo Reyes", walletAddress: "GAAAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNOOOPPPQQQRRR4" },
 ];
 
 export const mockCreateCollateralState: CreateCollateralState = {

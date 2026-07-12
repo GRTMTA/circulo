@@ -15,9 +15,10 @@ export interface ValidationResult {
  */
 export function isValidStellarPublicKey(address: string): boolean {
   if (!address || address.length !== 56) return false;
-  if (!address.startsWith("G")) return false;
+  const upperAddress = address.toUpperCase();
+  if (!upperAddress.startsWith("G")) return false;
   // Base32 alphabet used by Stellar (RFC 4648)
-  return /^[A-Z2-7]{56}$/.test(address);
+  return /^[A-Z2-7]{56}$/.test(upperAddress);
 }
 
 export function validateBasics(values: CreateBasicsState): ValidationResult {
