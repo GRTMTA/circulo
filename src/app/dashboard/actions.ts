@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { requireAuthenticatedUser } from "@/lib/auth";
 
+
 export interface CreateBasicsInput {
   name: string;
   contributionAmount: number;
@@ -181,4 +182,20 @@ export async function createCircleAction(
   revalidatePath("/dashboard", "layout");
 
   return { success: true, circleId: circle.id };
+}
+
+export async function completeOnboarding() {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return;
+
+  await supabase
+    .from("profiles")
+    .update({ onboarding_completed_at: new Date().toISOString() })
+    .eq("id", user.id);
+
+  revalidatePath("/dashboard", "layout");
 }
