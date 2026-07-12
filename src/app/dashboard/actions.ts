@@ -41,6 +41,32 @@ export async function createCircleAction(
 
   const supabase = await createServerSupabaseClient();
 
+  // Ensure the user's profile exists in public.profiles
+  const { data: existingProfile, error: profileCheckError } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("id", authContext.user.id)
+    .maybeSingle();
+
+  if (profileCheckError) {
+    console.error("Profile check error:", profileCheckError);
+  }
+
+  if (!existingProfile) {
+    const { error: profileInsertError } = await supabase
+      .from("profiles")
+      .insert({
+        id: authContext.user.id,
+        email: authContext.user.email || "",
+        full_name: authContext.user.user_metadata?.full_name || authContext.user.email?.split("@")[0] || "Ari Santos",
+      });
+
+    if (profileInsertError) {
+      console.error("Profile auto-insert error:", profileInsertError);
+      return { success: false, error: "Failed to initialize user profile. Please try logging out and logging back in." };
+    }
+  }
+
   // 1. Insert the circle into the public.circles table
   const { data: circle, error: circleError } = await supabase
     .from("circles")
