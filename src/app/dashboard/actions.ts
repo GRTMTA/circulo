@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
+import { createClient } from "@supabase/supabase-js";
+
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { requireAuthenticatedUser } from "@/lib/auth";
 
@@ -53,7 +55,24 @@ export async function createCircleAction(
   }
 
   if (!existingProfile) {
-    const { error: profileInsertError } = await supabase
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!serviceRoleKey) {
+      console.error("SUPABASE_SERVICE_ROLE_KEY is not defined");
+      return { success: false, error: "Failed to initialize user profile. System configuration error." };
+    }
+
+    const adminSupabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      serviceRoleKey,
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+      }
+    );
+
+    const { error: profileInsertError } = await adminSupabase
       .from("profiles")
       .insert({
         id: authContext.user.id,
@@ -63,7 +82,7 @@ export async function createCircleAction(
 
     if (profileInsertError) {
       console.error("Profile auto-insert error:", profileInsertError);
-      return { success: false, error: "Failed to initialize user profile. Please try logging out and logging back in." };
+      return { success: false, error: "Failed to initialize user profile: " + profileInsertError.message };
     }
   }
 
