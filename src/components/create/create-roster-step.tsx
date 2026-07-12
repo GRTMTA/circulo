@@ -62,11 +62,16 @@ export function CreateRosterStep({
           <Input
             id="member-wallet"
             value={walletAddress}
-            onChange={(event) => setWalletAddress(event.target.value)}
-            placeholder="GABCD..."
+            onChange={(event) => setWalletAddress(event.target.value.toUpperCase().trim())}
+            placeholder="GAAAABBB... (56 characters)"
             aria-invalid={!!entryErrors.walletAddress}
           />
-          <FieldDescription>Wallet roster locks before activation.</FieldDescription>
+          <FieldDescription>
+            Wallet roster locks before activation. 
+            <span className="block mt-1 font-mono text-[10px] text-muted-foreground">
+              Mock format: GAAAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNOOOPPPQQQRRR5
+            </span>
+          </FieldDescription>
           {entryErrors.walletAddress ? (
             <FieldError>{entryErrors.walletAddress}</FieldError>
           ) : null}

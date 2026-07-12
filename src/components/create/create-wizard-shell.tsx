@@ -57,21 +57,7 @@ export function CreateWizardShell() {
     return result.valid;
   }
 
-  // Live check for disabling the Next button
-  function isStepValid(): boolean {
-    switch (step) {
-      case 0:
-        return validateBasics(basics).valid;
-      case 1:
-        return validateRoster(roster, basics.memberCount).valid;
-      case 2:
-        return validateCollateral(collateral).valid;
-      default:
-        return true;
-    }
-  }
 
-  const canAdvance = isStepValid();
 
   function handleBack() {
     setAttempted(false);
@@ -190,7 +176,7 @@ export function CreateWizardShell() {
           >
             Back
           </Button>
-          <Button type="button" disabled={isSubmitting || !canAdvance} onClick={handleNext}>
+          <Button type="button" disabled={isSubmitting} onClick={handleNext}>
             {isSubmitting
               ? "Creating..."
               : step === steps.length - 1
