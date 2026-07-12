@@ -340,6 +340,7 @@ export function AppShell({
               <div className="hidden flex-1 justify-center px-4 md:flex">
                 <button
                   type="button"
+                  data-onboarding="header-search"
                   className="flex h-12 w-full max-w-xl items-center gap-3 rounded-xl border border-[var(--color-border-muted)] bg-[var(--color-background-default)] px-4 text-left text-sm text-muted-foreground shadow-sm transition-all hover:border-[var(--color-border-default)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--color-primary-muted)]"
                 >
                   <Search className="size-4 shrink-0" />
@@ -358,6 +359,7 @@ export function AppShell({
                   type="button"
                   variant="ghost"
                   size="icon"
+                  data-onboarding="notifications"
                   className="relative size-11 rounded-xl"
                   aria-label="Notifications"
                 >
@@ -460,6 +462,7 @@ export function AppShell({
         </Sheet>
 
         <aside
+          data-onboarding="sidebar-nav"
           className={cn(
             "fixed top-0 bottom-0 left-0 z-40 hidden bg-[var(--color-background-default)] transition-[width,box-shadow] duration-200 lg:block border-r border-[var(--color-border-muted)]",
             isSidebarCollapsed ? "w-[84px]" : "w-[260px] shadow-2xl"
