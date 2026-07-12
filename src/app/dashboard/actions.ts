@@ -7,7 +7,6 @@ import { createClient } from "@supabase/supabase-js";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { requireAuthenticatedUser } from "@/lib/auth";
 
-
 export interface CreateBasicsInput {
   name: string;
   contributionAmount: number;
@@ -184,6 +183,7 @@ export async function createCircleAction(
   return { success: true, circleId: circle.id };
 }
 
+
 export async function completeOnboarding() {
   const supabase = await createServerSupabaseClient();
   const {
@@ -198,4 +198,138 @@ export async function completeOnboarding() {
     .eq("id", user.id);
 
   revalidatePath("/dashboard", "layout");
+}
+
+
+export async function pauseCircleAction(circleId: string, reason: string) {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const supabase = await createServerSupabaseClient();
+
+  // Verify user is the creator
+  const { data: circle } = await supabase
+    .from("circles")
+    .select("id, creator_id, status")
+    .eq("id", circleId)
+    .single();
+
+  if (!circle || circle.creator_id !== authContext.user.id) {
+    return { success: false, error: "Only the circle creator can pause the circle." };
+  }
+
+  if (circle.status !== "active" && circle.status !== "delayed") {
+    return { success: false, error: "Only active or delayed circles can be paused." };
+  }
+
+  const { error } = await supabase
+    .from("circles")
+    .update({ status: "paused" })
+    .eq("id", circleId);
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  // Log the pause event
+  await supabase.from("audit_events").insert({
+    circle_id: circleId,
+    event_type: "circle_paused",
+    member_id: null,
+    details: reason,
+  });
+
+  revalidatePath(`/dashboard/${circleId}`);
+  revalidatePath("/dashboard", "layout");
+
+  return { success: true };
+}
+
+export async function resumeCircleAction(circleId: string) {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const supabase = await createServerSupabaseClient();
+
+  const { data: circle } = await supabase
+    .from("circles")
+    .select("id, creator_id, status")
+    .eq("id", circleId)
+    .single();
+
+  if (!circle || circle.creator_id !== authContext.user.id) {
+    return { success: false, error: "Only the circle creator can resume the circle." };
+  }
+
+  if (circle.status !== "paused") {
+    return { success: false, error: "Only paused circles can be resumed." };
+  }
+
+  const { error } = await supabase
+    .from("circles")
+    .update({ status: "active" })
+    .eq("id", circleId);
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  await supabase.from("audit_events").insert({
+    circle_id: circleId,
+    event_type: "circle_resumed",
+    member_id: null,
+  });
+
+  revalidatePath(`/dashboard/${circleId}`);
+  revalidatePath("/dashboard", "layout");
+
+  return { success: true };
+}
+
+export async function cancelCircleAction(circleId: string, reason: string) {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const supabase = await createServerSupabaseClient();
+
+  const { data: circle } = await supabase
+    .from("circles")
+    .select("id, creator_id, status")
+    .eq("id", circleId)
+    .single();
+
+  if (!circle || circle.creator_id !== authContext.user.id) {
+    return { success: false, error: "Only the circle creator can cancel the circle." };
+  }
+
+  if (circle.status !== "paused" && circle.status !== "draft") {
+    return { success: false, error: "Only paused or draft circles can be cancelled. Pause the circle first." };
+  }
+
+  const { error } = await supabase
+    .from("circles")
+    .update({ status: "cancelled" })
+    .eq("id", circleId);
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  await supabase.from("audit_events").insert({
+    circle_id: circleId,
+    event_type: "circle_cancelled",
+    member_id: null,
+    details: reason,
+  });
+
+  revalidatePath(`/dashboard/${circleId}`);
+  revalidatePath("/dashboard", "layout");
+
+  return { success: true };
 }

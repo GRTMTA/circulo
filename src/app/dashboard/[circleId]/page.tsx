@@ -28,6 +28,7 @@ export default async function CircleDashboardPage({
         ["defaults", "Default Protection"],
         ["audit", "Audit Log"],
         ["settings", "Pool Settings"],
+        ["emergency", "Emergency"],
       ]
     : [
         ["overview", "Overview"],
