@@ -46,6 +46,17 @@ function FieldDescription({ className, ...props }: React.ComponentProps<"p">) {
   );
 }
 
+function FieldError({ className, ...props }: React.ComponentProps<"p">) {
+  return (
+    <p
+      data-slot="field-error"
+      role="alert"
+      className={cn("text-sm font-medium text-[var(--color-error-default)]", className)}
+      {...props}
+    />
+  );
+}
+
 function FieldSeparator({
   className,
   children,
@@ -73,6 +84,7 @@ function FieldSeparator({
 export {
   Field,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
   FieldSeparator,
