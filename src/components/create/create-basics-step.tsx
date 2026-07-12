@@ -62,13 +62,14 @@ export function CreateBasicsStep({
           <Select
             value={values.contributionAsset}
             onValueChange={(value) =>
-              onChange({ ...values, contributionAsset: value as "USDC" | "USDT" })
+              onChange({ ...values, contributionAsset: value as "USDC" | "USDT" | "XLM" })
             }
           >
             <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="USDC">USDC on Stellar</SelectItem>
               <SelectItem value="USDT">USDT on Stellar</SelectItem>
+              <SelectItem value="XLM">XLM (Stellar Lumens)</SelectItem>
             </SelectContent>
           </Select>
         </Field>

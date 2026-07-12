@@ -29,7 +29,7 @@ export default async function DashboardLayout({
     <AppShell
       circles={circles}
       user={appShellUser}
-      headerActions={<ConnectWalletButton />}
+      headerActions={<ConnectWalletButton compact />}
       brand={{
         title: "Circulo",
         href: "/dashboard",
