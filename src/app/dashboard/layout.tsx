@@ -1,6 +1,6 @@
 import { AppShell } from "@/components/dashboard/app-shell";
 import { DashboardSpotlightTour } from "@/components/onboarding/dashboard-spotlight-tour";
-import { getOptionalAuthContext } from "@/lib/auth";
+import { requireAuthenticatedUser } from "@/lib/auth";
 import { getDashboardDTO } from "@/lib/dashboard/queries";
 
 export const dynamic = "force-dynamic";
@@ -12,14 +12,22 @@ export default async function DashboardLayout({
 }) {
   const [circles, authContext] = await Promise.all([
     getDashboardDTO(),
-    getOptionalAuthContext(),
+    requireAuthenticatedUser("/dashboard"),
   ]);
 
+  const appShellUser = authContext.user
+    ? {
+        name: authContext.profile?.full_name || authContext.user.email || "Ari Santos",
+        email: authContext.user.email,
+        badge: authContext.profile?.full_name ? "Member" : undefined,
+      }
+    : undefined;
   const showOnboarding = !authContext.profile?.onboarding_completed_at;
 
   return (
     <AppShell
       circles={circles}
+      user={appShellUser}
       brand={{
         title: "Circulo",
         href: "/dashboard",
