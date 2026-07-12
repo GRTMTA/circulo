@@ -1,6 +1,7 @@
 "use client";
 
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { InfoTip } from "@/components/ui/info-tip";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -14,9 +15,11 @@ import type { CreateBasicsState } from "@/lib/mocks";
 export function CreateBasicsStep({
   values,
   onChange,
+  errors = {},
 }: {
   values: CreateBasicsState;
   onChange: (values: CreateBasicsState) => void;
+  errors?: Record<string, string>;
 }) {
   return (
     <FieldGroup>
@@ -26,12 +29,17 @@ export function CreateBasicsStep({
           id="circle-name"
           value={values.name}
           onChange={(event) => onChange({ ...values, name: event.target.value })}
+          aria-invalid={!!errors.name}
         />
-        <FieldDescription>Use a private group name members will recognize.</FieldDescription>
+        <FieldDescription>A private name your members will recognize.</FieldDescription>
+        {errors.name ? <FieldError>{errors.name}</FieldError> : null}
       </Field>
       <div className="grid gap-5 md:grid-cols-2">
         <Field>
-          <FieldLabel htmlFor="contribution-amount">Contribution Amount</FieldLabel>
+          <div className="flex items-center gap-1.5">
+            <FieldLabel htmlFor="contribution-amount">Contribution Amount</FieldLabel>
+            <InfoTip>The fixed amount each member pays per round. All contributions go to one member each cycle.</InfoTip>
+          </div>
           <Input
             id="contribution-amount"
             type="number"
@@ -40,10 +48,17 @@ export function CreateBasicsStep({
             onChange={(event) =>
               onChange({ ...values, contributionAmount: Number(event.target.value) })
             }
+            aria-invalid={!!errors.contributionAmount}
           />
+          {errors.contributionAmount ? (
+            <FieldError>{errors.contributionAmount}</FieldError>
+          ) : null}
         </Field>
         <Field>
-          <FieldLabel>Asset</FieldLabel>
+          <div className="flex items-center gap-1.5">
+            <FieldLabel>Asset</FieldLabel>
+            <InfoTip>The Stellar token used for contributions and payouts.</InfoTip>
+          </div>
           <Select
             value={values.contributionAsset}
             onValueChange={(value) =>
@@ -60,7 +75,10 @@ export function CreateBasicsStep({
       </div>
       <div className="grid gap-5 md:grid-cols-2">
         <Field>
-          <FieldLabel>Interval</FieldLabel>
+          <div className="flex items-center gap-1.5">
+            <FieldLabel>Interval</FieldLabel>
+            <InfoTip>How often members contribute. Shorter intervals mean faster payouts for everyone.</InfoTip>
+          </div>
           <Select
             value={String(values.intervalSeconds)}
             onValueChange={(value) => onChange({ ...values, intervalSeconds: Number(value) })}
@@ -74,7 +92,10 @@ export function CreateBasicsStep({
           </Select>
         </Field>
         <Field>
-          <FieldLabel htmlFor="member-count">Member Count</FieldLabel>
+          <div className="flex items-center gap-1.5">
+            <FieldLabel htmlFor="member-count">Member Count</FieldLabel>
+            <InfoTip>Total members including yourself. Each member receives one payout — more members means more rounds.</InfoTip>
+          </div>
           <Input
             id="member-count"
             type="number"
@@ -82,10 +103,11 @@ export function CreateBasicsStep({
             max={20}
             value={values.memberCount}
             onChange={(event) => onChange({ ...values, memberCount: Number(event.target.value) })}
+            aria-invalid={!!errors.memberCount}
           />
+          {errors.memberCount ? <FieldError>{errors.memberCount}</FieldError> : null}
         </Field>
       </div>
     </FieldGroup>
   );
 }
-
