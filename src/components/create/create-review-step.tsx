@@ -33,7 +33,7 @@ export function CreateReviewStep({
       <Card>
         <CardHeader><CardTitle>Collateral Rules</CardTitle></CardHeader>
         <CardContent className="grid gap-2 text-sm">
-          <p><strong>Collateral:</strong> {collateral.collateralAmount} {basics.contributionAsset}</p>
+          <p><strong>Collateral:</strong> Dynamic (Paluwagan formula)</p>
           <p><strong>Grace:</strong> {collateral.gracePeriodHours} hours</p>
           <p><strong>Slash:</strong> {collateral.slashPercentage}%</p>
         </CardContent>

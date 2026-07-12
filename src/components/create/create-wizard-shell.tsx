@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
@@ -38,6 +38,31 @@ export function CreateWizardShell() {
   const [stepErrors, setStepErrors] = useState<Record<string, string>>({});
   const [attempted, setAttempted] = useState(false);
 
+  // Synchronize payoutOrder state when the roster changes
+  useEffect(() => {
+    Promise.resolve().then(() => {
+      setPayoutOrder((currentOrder) => {
+        const orderMap = new Map(currentOrder.map((item) => [item.walletAddress, item]));
+
+        const newOrder = roster.map((member, index) => {
+          const existing = orderMap.get(member.walletAddress);
+          if (existing) {
+            return { ...existing, displayName: member.displayName };
+          }
+          return {
+            ...member,
+            payoutRound: index + 1,
+          };
+        });
+
+        return newOrder.map((item, index) => ({
+          ...item,
+          payoutRound: index + 1,
+        }));
+      });
+    });
+  }, [roster]);
+
   function validateCurrentStep(): boolean {
     let result;
     switch (step) {
@@ -57,7 +82,20 @@ export function CreateWizardShell() {
     return result.valid;
   }
 
+  function isStepValid(): boolean {
+    switch (step) {
+      case 0:
+        return validateBasics(basics).valid;
+      case 1:
+        return validateRoster(roster, basics.memberCount).valid;
+      case 2:
+        return validateCollateral(collateral).valid;
+      default:
+        return true;
+    }
+  }
 
+  const canAdvance = isStepValid();
 
   function handleBack() {
     setAttempted(false);
@@ -151,6 +189,9 @@ export function CreateWizardShell() {
           <CreateCollateralStep
             values={collateral}
             onChange={setCollateral}
+            memberCount={basics.memberCount}
+            contributionAmount={basics.contributionAmount}
+            contributionAsset={basics.contributionAsset}
             errors={attempted ? stepErrors : {}}
           />
         ) : null}
@@ -176,7 +217,7 @@ export function CreateWizardShell() {
           >
             Back
           </Button>
-          <Button type="button" disabled={isSubmitting} onClick={handleNext}>
+          <Button type="button" disabled={isSubmitting || !canAdvance} onClick={handleNext}>
             {isSubmitting
               ? "Creating..."
               : step === steps.length - 1

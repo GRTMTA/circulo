@@ -95,14 +95,8 @@ export function validateRosterEntry(
 export function validateCollateral(values: CreateCollateralState): ValidationResult {
   const errors: Record<string, string> = {};
 
-  if (values.collateralAmount < 0) {
-    errors.collateralAmount = "Collateral cannot be negative.";
-  }
-
   if (values.gracePeriodHours < 0) {
     errors.gracePeriodHours = "Grace period cannot be negative.";
-  } else if (values.gracePeriodHours === 0 && values.collateralAmount > 0) {
-    errors.gracePeriodHours = "Set a grace period so members have time to pay before slashing.";
   }
 
   if (values.slashPercentage < 0 || values.slashPercentage > 100) {
