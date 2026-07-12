@@ -2,6 +2,7 @@ import { AppShell } from "@/components/dashboard/app-shell";
 import { DashboardSpotlightTour } from "@/components/onboarding/dashboard-spotlight-tour";
 import { requireAuthenticatedUser } from "@/lib/auth";
 import { getDashboardDTO } from "@/lib/dashboard/queries";
+import { ConnectWalletButton } from "@/components/ConnectWalletButton";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,7 @@ export default async function DashboardLayout({
     <AppShell
       circles={circles}
       user={appShellUser}
+      headerActions={<ConnectWalletButton />}
       brand={{
         title: "Circulo",
         href: "/dashboard",
