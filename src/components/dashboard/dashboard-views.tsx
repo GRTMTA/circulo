@@ -52,6 +52,10 @@ import type { FilterOption, FilterSpec } from "@/components/ui/table-filter-bar"
 import { TableFilterBar } from "@/components/ui/table-filter-bar";
 import { CalendarExportButton } from "@/components/calendar/calendar-export-button";
 import { CycleCalendarView } from "@/components/calendar/cycle-calendar-view";
+import {
+  DefaultProtectionCreatorView,
+  DefaultProtectionMemberView,
+} from "@/components/dashboard/default-protection-panel";
 import type {
   CreatorDashboardDTO,
   DashboardAuditEvent,
@@ -725,13 +729,7 @@ function CreatorDashboard({
       </TabsContent>
 
       <TabsContent value="defaults">
-        <SectionCard title="Default Protection" description="Grace period, warning, auto-slash, and restriction flow.">
-          <div className="grid gap-3 md:grid-cols-2">
-            {["Grace Period Active", "Auto-Slash Pending", "Collateral Slashed", "Injected Into Pool", "Member Restricted"].map((label) => (
-              <div key={label} className="rounded-xl border border-border bg-white p-4 font-semibold">{label}</div>
-            ))}
-          </div>
-        </SectionCard>
+        <DefaultProtectionCreatorView circle={data.circle} members={data.members} />
       </TabsContent>
 
       <TabsContent value="audit">
@@ -857,12 +855,7 @@ function MemberDashboard({
       </TabsContent>
 
       <TabsContent value="collateral">
-        <SectionCard title="Collateral Status" description="Collateral discourages disappearing after payout and follows locked default rules.">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <StatCard label="Your Collateral" value={titleCase(data.currentMember.collateralStatus)} icon={LockKeyhole} />
-            <StatCard label="Pool Requirement" value={formatAmount(data.circle.collateralAmount, data.circle.contributionAsset)} icon={ShieldCheck} />
-          </div>
-        </SectionCard>
+        <DefaultProtectionMemberView circle={data.circle} member={data.currentMember} />
       </TabsContent>
 
       <TabsContent value="rules">
