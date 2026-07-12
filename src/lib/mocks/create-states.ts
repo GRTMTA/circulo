@@ -1,7 +1,7 @@
 export interface CreateBasicsState {
   name: string;
   contributionAmount: number;
-  contributionAsset: "USDC" | "USDT";
+  contributionAsset: "USDC" | "USDT" | "XLM";
   intervalSeconds: number;
   memberCount: number;
 }

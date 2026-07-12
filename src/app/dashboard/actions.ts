@@ -10,7 +10,7 @@ import { requireAuthenticatedUser } from "@/lib/auth";
 export interface CreateBasicsInput {
   name: string;
   contributionAmount: number;
-  contributionAsset: "USDC" | "USDT";
+  contributionAsset: "USDC" | "USDT" | "XLM";
   intervalSeconds: number;
   memberCount: number;
 }
