@@ -1,7 +1,6 @@
 "use client";
 
-import { ShieldAlert } from "lucide-react";
-
+import { ShieldAlert, Sparkles } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InfoTip } from "@/components/ui/info-tip";
@@ -11,46 +10,77 @@ import type { CreateCollateralState } from "@/lib/mocks";
 export function CreateCollateralStep({
   values,
   onChange,
+  memberCount,
+  contributionAmount,
+  contributionAsset,
   errors = {},
 }: {
   values: CreateCollateralState;
   onChange: (values: CreateCollateralState) => void;
+  memberCount: number;
+  contributionAmount: number;
+  contributionAsset: string;
   errors?: Record<string, string>;
 }) {
+  const N = memberCount;
+  const A = contributionAmount;
+  const asset = contributionAsset;
+
+  // Generate dynamic collateral requirements per round: (N - k) * A
+  const collateralRows = Array.from({ length: N }, (_, i) => {
+    const k = i + 1;
+    const remaining = N - k;
+    const required = remaining * A;
+    return { k, remaining, required };
+  });
+
   return (
     <FieldGroup>
       <Alert>
-        <ShieldAlert className="size-4" />
-        <AlertTitle>Why set collateral?</AlertTitle>
+        <ShieldAlert className="size-4 text-[var(--color-primary-default)]" />
+        <AlertTitle>How Collateral Protects the Group</AlertTitle>
         <AlertDescription>
-          Collateral protects the group. Each member locks funds upfront — if someone
-          misses a contribution, their collateral covers the pool so other members
-          aren&apos;t left short. It builds trust without needing to rely solely on personal
-          relationships.
+          In informal Paluwagan groups, a major risk is members taking their payout early and defaulting on subsequent rounds. 
+          Circulo solves this by dynamically locking a collateral buffer from each member upfront, which is automatically slashed 
+          to cover missed rounds.
         </AlertDescription>
       </Alert>
 
-      <div className="grid gap-5 md:grid-cols-3">
-        <Field>
-          <div className="flex items-center gap-1.5">
-            <FieldLabel htmlFor="collateral-amount">Collateral Amount</FieldLabel>
-            <InfoTip>Funds each member locks before the circle starts. Set this to at least one contribution amount for basic protection.</InfoTip>
-          </div>
-          <Input
-            id="collateral-amount"
-            type="number"
-            min={0}
-            value={values.collateralAmount}
-            onChange={(event) =>
-              onChange({ ...values, collateralAmount: Number(event.target.value) })
-            }
-            aria-invalid={!!errors.collateralAmount}
-          />
-          <FieldDescription>Locked per member until circle completes.</FieldDescription>
-          {errors.collateralAmount ? (
-            <FieldError>{errors.collateralAmount}</FieldError>
-          ) : null}
-        </Field>
+      {/* Dynamic Collateral Table */}
+      <div className="rounded-xl border border-[var(--color-border-muted)] bg-[var(--color-background-muted)]/20 p-4">
+        <h3 className="text-sm font-semibold flex items-center gap-2 mb-2 text-[var(--color-text-default)]">
+          <Sparkles className="size-4 text-[var(--color-primary-default)]" />
+          Required Collateral per Payout Slot
+        </h3>
+        <p className="text-xs text-muted-foreground mb-4">
+          Calculated using the formula: <code className="font-mono text-indigo-500 bg-indigo-500/5 px-1.5 py-0.5 rounded border border-indigo-500/10">Required Collateral = (Total Members - Payout Round) × Contribution Amount</code>
+        </p>
+
+        <div className="overflow-hidden rounded-xl border border-[var(--color-border-muted)] bg-[var(--color-background-default)]">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead className="bg-[var(--color-background-muted)]/70 text-muted-foreground font-semibold border-b border-[var(--color-border-muted)]">
+              <tr>
+                <th className="p-3">Payout Slot (k)</th>
+                <th className="p-3">Remaining Obligations</th>
+                <th className="p-3 text-right">Required Collateral</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--color-border-muted)]">
+              {collateralRows.map(({ k, remaining, required }) => (
+                <tr key={k} className="hover:bg-[var(--color-background-muted)]/20 transition-colors">
+                  <td className="p-3 font-medium">Round {k} {k === N ? "(Last Slot)" : ""}</td>
+                  <td className="p-3 text-muted-foreground">{remaining} rounds after payout</td>
+                  <td className="p-3 text-right font-mono font-semibold text-[var(--color-text-default)]">
+                    {required.toLocaleString()} {asset}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="grid gap-5 md:grid-cols-2">
         <Field>
           <div className="flex items-center gap-1.5">
             <FieldLabel htmlFor="grace-hours">Grace Period (hours)</FieldLabel>
@@ -71,6 +101,7 @@ export function CreateCollateralStep({
             <FieldError>{errors.gracePeriodHours}</FieldError>
           ) : null}
         </Field>
+
         <Field>
           <div className="flex items-center gap-1.5">
             <FieldLabel htmlFor="slash-percentage">Slash %</FieldLabel>
