@@ -56,6 +56,17 @@ import {
   DefaultProtectionCreatorView,
   DefaultProtectionMemberView,
 } from "@/components/dashboard/default-protection-panel";
+import {
+  EmergencyActionsPanel,
+  EmergencyRulesDisplay,
+} from "@/components/dashboard/emergency-rules-panel";
+import {
+  pauseCircleAction,
+  resumeCircleAction,
+  cancelCircleAction,
+} from "@/app/dashboard/actions";
+import { ContributionReminderBanner } from "@/components/reminders/contribution-reminder-banner";
+import { ReminderSettingsPanel } from "@/components/reminders/reminder-settings-panel";
 import type {
   CreatorDashboardDTO,
   DashboardAuditEvent,
@@ -748,6 +759,26 @@ function CreatorDashboard({
           </div>
         </SectionCard>
       </TabsContent>
+
+      <TabsContent value="emergency" className="grid gap-6">
+        <EmergencyActionsPanel
+          circleId={data.circle.id}
+          circleStatus={data.circle.status}
+          onPause={async (reason) => {
+            const res = await pauseCircleAction(data.circle.id, reason);
+            if (!res.success) throw new Error(res.error);
+          }}
+          onResume={async () => {
+            const res = await resumeCircleAction(data.circle.id);
+            if (!res.success) throw new Error(res.error);
+          }}
+          onCancel={async (reason) => {
+            const res = await cancelCircleAction(data.circle.id, reason);
+            if (!res.success) throw new Error(res.error);
+          }}
+        />
+        <EmergencyRulesDisplay />
+      </TabsContent>
     </>
   );
 
@@ -768,6 +799,7 @@ function CreatorDashboard({
           ["defaults", "Default Protection"],
           ["audit", "Audit Log"],
           ["settings", "Pool Settings"],
+          ["emergency", "Emergency"],
         ].map(([value, label]) => (
           <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
         ))}
@@ -800,6 +832,12 @@ function MemberDashboard({
     <>
 
       <TabsContent value="overview" className="grid gap-6">
+        <ContributionReminderBanner
+          currentRound={currentRound ?? null}
+          myContribution={myContribution}
+          contributionAmount={data.circle.contributionAmount}
+          contributionAsset={data.circle.contributionAsset}
+        />
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <StatCard label="Pool Status" value={titleCase(data.circle.status)} icon={ShieldCheck} />
           <StatCard label="Collateral Posted" value={`${postedCollateral} / ${data.members.length}`} icon={LockKeyhole} />
@@ -858,7 +896,7 @@ function MemberDashboard({
         <DefaultProtectionMemberView circle={data.circle} member={data.currentMember} />
       </TabsContent>
 
-      <TabsContent value="rules">
+      <TabsContent value="rules" className="grid gap-6">
         <SectionCard title="Rules & Agreement" description="Short, explicit participation boundaries.">
           <div className="grid gap-3">
             {[
@@ -872,9 +910,10 @@ function MemberDashboard({
             ))}
           </div>
         </SectionCard>
+        <EmergencyRulesDisplay />
       </TabsContent>
 
-      <TabsContent value="notifications">
+      <TabsContent value="notifications" className="grid gap-6">
         <SectionCard title="Notifications" description="Member-facing status updates and action reminders.">
           {data.notifications.length > 0 ? (
             <div className="grid gap-3">
@@ -892,6 +931,9 @@ function MemberDashboard({
             <p className="text-sm text-muted-foreground">No notifications yet.</p>
           )}
         </SectionCard>
+        <ReminderSettingsPanel
+          reminderScheduleHours={data.circle.reminderScheduleHours}
+        />
       </TabsContent>
     </>
   );
