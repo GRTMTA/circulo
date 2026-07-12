@@ -20,4 +20,6 @@ if (typeof window !== "undefined") {
   }
 }
 
-export { StellarWalletsKit, Networks };
+import { KitEventType } from "@creit.tech/stellar-wallets-kit";
+
+export { StellarWalletsKit, Networks, KitEventType };
