@@ -151,9 +151,7 @@ function NavigationGroup({
   onNavigate?: () => void;
   collapsed?: boolean;
 }) {
-  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({
-    "All Circles": true,
-  });
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
 
   const toggleExpand = (label: string) => {
     setExpandedItems((prev) => ({
@@ -181,7 +179,20 @@ function NavigationGroup({
           const isExpanded = expandedItems[item.label] ?? false;
 
           return (
-            <div key={item.label} className="space-y-0.5">
+            <div
+              key={item.label}
+              className="space-y-0.5"
+              onMouseEnter={() => {
+                if (hasSubItems) {
+                  setExpandedItems((prev) => ({ ...prev, [item.label]: true }));
+                }
+              }}
+              onMouseLeave={() => {
+                if (hasSubItems) {
+                  setExpandedItems((prev) => ({ ...prev, [item.label]: false }));
+                }
+              }}
+            >
               <Button
                 key={item.label}
                 render={<Link href={item.href} />}
@@ -211,8 +222,13 @@ function NavigationGroup({
                 <span className={collapsed ? "sr-only" : undefined}>{item.label}</span>
               </Button>
 
-              {!collapsed && hasSubItems && isExpanded && (
-                <div className="pl-6 space-y-0.5 border-l border-[var(--color-border-muted)] ml-4">
+              {!collapsed && hasSubItems && (
+                <div
+                  className={cn(
+                    "pl-6 space-y-0.5 border-l border-[var(--color-border-muted)] ml-4 transition-all duration-250 ease-in-out overflow-hidden",
+                    isExpanded ? "max-h-96 opacity-100 mt-1" : "max-h-0 opacity-0 pointer-events-none"
+                  )}
+                >
                   {item.subItems?.map((subItem) => {
                     const isSubActive = matchesNavPath(pathname, subItem);
                     return (
