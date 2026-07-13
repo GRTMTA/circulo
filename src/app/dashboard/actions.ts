@@ -34,16 +34,17 @@ export async function createCircleAction(
   basics: CreateBasicsInput,
   roster: CreateRosterMemberInput[],
   collateral: CreateCollateralInput,
-  payoutOrder: CreatePayoutOrderItemInput[]
+  payoutOrder: CreatePayoutOrderItemInput[],
+  creatorWalletAddress?: string
 ) {
   const authContext = await requireAuthenticatedUser("/dashboard/create");
   if (!authContext.configured || !authContext.user) {
-    return { success: false, error: "Supabase not configured" };
+    return { success: false, error: "Authentication required" };
   }
 
   const supabase = await createServerSupabaseClient();
 
-  // Ensure the user's profile exists in public.profiles
+  // Self-healing check for user profile presence
   const { data: existingProfile, error: profileCheckError } = await supabase
     .from("profiles")
     .select("id")
@@ -86,6 +87,14 @@ export async function createCircleAction(
     }
   }
 
+  // Resolve the creator's wallet address (connected wallet or fallback format-compliant key)
+  const creatorAddress = creatorWalletAddress || "GAAAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNOOOPPPQQQRRR2";
+
+  // Check if the creator is explicitly listed in the roster
+  const creatorIndex = roster.findIndex((m) => m.walletAddress.toUpperCase() === creatorAddress.toUpperCase());
+  const hasCreator = creatorIndex !== -1;
+  const actualMemberCount = hasCreator ? roster.length : roster.length + 1;
+
   // 1. Insert the circle into the public.circles table
   const { data: circle, error: circleError } = await supabase
     .from("circles")
@@ -96,13 +105,13 @@ export async function createCircleAction(
       contribution_amount: basics.contributionAmount,
       contribution_asset: basics.contributionAsset,
       interval_seconds: basics.intervalSeconds,
-      member_count: roster.length + 1, // roster members + creator
+      member_count: actualMemberCount, // exact count matching the roster + creator
       max_member_count: basics.memberCount,
       collateral_amount: collateral.collateralAmount,
       grace_period_hours: collateral.gracePeriodHours,
       slash_percentage: collateral.slashPercentage,
       current_round: 0, // 0 for draft mode (not started)
-      total_rounds: roster.length + 1,
+      total_rounds: actualMemberCount,
       start_date: null,
       settings_locked: false,
       payout_order_locked: false,
@@ -129,27 +138,50 @@ export async function createCircleAction(
     payment_status: string;
     payout_round: number;
     restriction_status: string;
-  }> = [
-    // The creator
-    {
+  }> = [];
+
+  // Insert the creator (either mapped from the roster or manually)
+  if (hasCreator) {
+    const creatorMember = roster[creatorIndex];
+    const payoutItem = payoutOrder.find((p) => p.walletAddress.toUpperCase() === creatorMember.walletAddress.toUpperCase());
+    const payoutRound = payoutItem ? payoutItem.payoutRound : 1;
+
+    membersToInsert.push({
       circle_id: circle.id,
       profile_id: authContext.user.id,
-      display_name: authContext.profile?.full_name || authContext.user.email || "Ari Santos",
-      wallet_address: "GABC91A2CREATOR000000000000000000000000000000000000000001", // fallback wallet
+      display_name: creatorMember.displayName,
+      wallet_address: creatorMember.walletAddress,
       role: "creator",
       invite_status: "accepted",
       agreement_status: "accepted",
-      collateral_status: "not_posted", // draft circles start with not_posted
+      collateral_status: "not_posted",
+      payment_status: "not_due",
+      payout_round: payoutRound,
+      restriction_status: "clear",
+    });
+  } else {
+    membersToInsert.push({
+      circle_id: circle.id,
+      profile_id: authContext.user.id,
+      display_name: authContext.profile?.full_name || authContext.user.email || "Ari Santos",
+      wallet_address: creatorAddress,
+      role: "creator",
+      invite_status: "accepted",
+      agreement_status: "accepted",
+      collateral_status: "not_posted",
       payment_status: "not_due",
       payout_round: 1,
       restriction_status: "clear",
-    },
-  ];
+    });
+  }
 
-  // Invited members from the roster
+  // Insert all other roster members
   roster.forEach((member, index) => {
-    // Find the payout round from the payoutOrder list
-    const payoutItem = payoutOrder.find((p) => p.walletAddress === member.walletAddress);
+    if (member.walletAddress.toUpperCase() === creatorAddress.toUpperCase()) {
+      return; // Already added as creator
+    }
+
+    const payoutItem = payoutOrder.find((p) => p.walletAddress.toUpperCase() === member.walletAddress.toUpperCase());
     const payoutRound = payoutItem ? payoutItem.payoutRound : index + 2;
 
     membersToInsert.push({
