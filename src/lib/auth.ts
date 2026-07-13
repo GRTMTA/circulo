@@ -1,5 +1,6 @@
-import type { User } from "@supabase/supabase-js";
+import { createClient, type User } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 
 import { getIsSupabaseConfigured } from "@/lib/env";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -8,6 +9,8 @@ export interface Profile {
   id: string;
   email: string;
   full_name: string | null;
+  username: string | null;
+  wallet_address: string | null;
   created_at: string;
   updated_at: string;
   onboarding_completed_at: string | null;
@@ -53,11 +56,106 @@ export async function getOptionalAuthContext(): Promise<OptionalAuthContext> {
     };
   }
 
-  const { data: profile } = await supabase
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const dbClient = serviceRoleKey
+    ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
+    : supabase;
+
+  let profile: Profile | null = null;
+  const { data, error: selectError } = await dbClient
     .from("profiles")
-    .select("id,email,full_name,created_at,updated_at,onboarding_completed_at")
+    .select("id,email,full_name,username,wallet_address,created_at,updated_at,onboarding_completed_at")
     .eq("id", user.id)
     .maybeSingle<Profile>();
+
+  profile = data;
+
+  if (selectError) {
+    console.error("getOptionalAuthContext - selectError:", selectError.message);
+  }
+
+  if (user && !profile) {
+    let resolvedUsername = "";
+    let attempts = 0;
+    while (attempts < 100) {
+      const candidate = String(Math.floor(Math.random() * (999999 - 100000 + 1) + 100000));
+      const { data: existing, error: existError } = await dbClient
+        .from("profiles")
+        .select("id")
+        .eq("username", candidate)
+        .maybeSingle();
+
+      if (existError) {
+        console.error("getOptionalAuthContext - existError:", existError.message);
+      }
+
+      if (!existing) {
+        resolvedUsername = candidate;
+        break;
+      }
+      attempts++;
+    }
+
+    const { data: newProfile, error: insertError } = await dbClient
+      .from("profiles")
+      .insert({
+        id: user.id,
+        email: user.email || "",
+        full_name: user.user_metadata?.full_name || null,
+        username: resolvedUsername || null,
+      })
+      .select("id,email,full_name,username,wallet_address,created_at,updated_at,onboarding_completed_at")
+      .maybeSingle<Profile>();
+
+    if (insertError) {
+      console.error("getOptionalAuthContext - insertError:", insertError.message);
+    }
+
+    if (newProfile) {
+      profile = newProfile;
+      revalidatePath("/", "layout");
+    }
+  }
+
+  if (profile && (!profile.username || !/^\d{6}$/.test(profile.username))) {
+    let resolvedUsername = "";
+    let attempts = 0;
+
+    while (attempts < 100) {
+      const candidate = String(Math.floor(Math.random() * (999999 - 100000 + 1) + 100000));
+      const { data: existing, error: existCheckError } = await dbClient
+        .from("profiles")
+        .select("id")
+        .eq("username", candidate)
+        .maybeSingle();
+
+      if (existCheckError) {
+        console.error("getOptionalAuthContext - existCheckError:", existCheckError.message);
+      }
+
+      if (!existing) {
+        resolvedUsername = candidate;
+        break;
+      }
+      attempts++;
+    }
+
+    if (resolvedUsername) {
+      const { error: updateError } = await dbClient
+        .from("profiles")
+        .update({ username: resolvedUsername })
+        .eq("id", profile.id);
+
+      if (updateError) {
+        console.error("getOptionalAuthContext - updateError:", updateError.message);
+      } else {
+        profile.username = resolvedUsername;
+        revalidatePath("/", "layout");
+      }
+    }
+  }
 
   return {
     configured: true,

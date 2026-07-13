@@ -33,16 +33,28 @@ export function RegisterForm() {
     <>
       <form action={formAction}>
         <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="register-name">Name</FieldLabel>
-            <Input
-              id="register-name"
-              name="name"
-              autoComplete="name"
-              placeholder="Your full name"
-              required
-            />
-          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field>
+              <FieldLabel htmlFor="register-given-name">Given name</FieldLabel>
+              <Input
+                id="register-given-name"
+                name="givenName"
+                autoComplete="given-name"
+                placeholder="e.g. John"
+                required
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="register-last-name">Last name</FieldLabel>
+              <Input
+                id="register-last-name"
+                name="lastName"
+                autoComplete="family-name"
+                placeholder="e.g. Doe"
+                required
+              />
+            </Field>
+          </div>
 
           <Field>
             <FieldLabel htmlFor="register-email">Email</FieldLabel>

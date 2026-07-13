@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   CalendarDays,
   ClipboardCheck,
@@ -15,6 +16,7 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  AlertTriangle,
 } from "lucide-react";
 
 // AppShell and DashboardShell imports removed since layout is managed by Next.js layouts.
@@ -830,8 +832,22 @@ function MemberDashboard({
 
   const tabContent = (
     <>
-
       <TabsContent value="overview" className="grid gap-6">
+        {data.currentMember.agreementStatus === "pending" ? (
+          <Alert className="border-amber-500/20 bg-amber-500/5 text-amber-600">
+            <AlertTriangle className="size-4 text-amber-500" />
+            <AlertTitle>Pending Circle Agreement</AlertTitle>
+            <AlertDescription className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <span>You have been invited to join this rotating savings circle. Please read and accept the agreement rules to participate.</span>
+              <Link href={`/dashboard/${data.circle.id}/agreement`} passHref>
+                <Button size="sm" className="bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-sm">
+                  Review & Join
+                </Button>
+              </Link>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
         <ContributionReminderBanner
           currentRound={currentRound ?? null}
           myContribution={myContribution}

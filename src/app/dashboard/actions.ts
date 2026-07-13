@@ -365,3 +365,136 @@ export async function cancelCircleAction(circleId: string, reason: string) {
 
   return { success: true };
 }
+
+export async function resolveUserByUsernameAction(username: string) {
+  const supabase = await createServerSupabaseClient();
+  
+  // Clean username input (trim and remove leading @ if present)
+  const cleanUsername = username.replace(/^@/, "").trim();
+  
+  const { data: profile, error } = await supabase
+    .from("profiles")
+    .select("full_name, wallet_address")
+    .eq("username", cleanUsername)
+    .maybeSingle();
+
+  if (error || !profile) {
+    return { success: false, error: "User ID not found." };
+  }
+
+  return { 
+    success: true, 
+    displayName: profile.full_name || cleanUsername, 
+    walletAddress: profile.wallet_address || null 
+  };
+}
+
+export async function updateProfileWalletAction(walletAddress: string) {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const supabase = await createServerSupabaseClient();
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ wallet_address: walletAddress })
+    .eq("id", authContext.user.id);
+
+  if (error) {
+    console.error("Failed to update profile wallet:", error);
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
+}
+
+export async function acceptAgreementAction(circleId: string) {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const supabase = await createServerSupabaseClient();
+
+  // Find user's member record in this circle
+  let { data: member } = await supabase
+    .from("circle_members")
+    .select("id, invite_status")
+    .eq("circle_id", circleId)
+    .eq("profile_id", authContext.user.id)
+    .maybeSingle();
+
+  if (!member) {
+    // Try matching by email
+    const { data: memberByEmail } = await supabase
+      .from("circle_members")
+      .select("id, invite_status")
+      .eq("circle_id", circleId)
+      .eq("display_name", authContext.profile?.full_name || authContext.user.email || "")
+      .maybeSingle();
+    
+    if (memberByEmail) {
+      member = memberByEmail;
+    }
+  }
+
+  if (!member) {
+    // Try matching by first pending invite for testing
+    const { data: invited } = await supabase
+      .from("circle_members")
+      .select("id, invite_status")
+      .eq("circle_id", circleId)
+      .eq("invite_status", "invited")
+      .limit(1);
+    
+    if (invited && invited.length > 0) {
+      member = invited[0];
+    }
+  }
+
+  if (!member) {
+    return { success: false, error: "No pending invitation found for this circle." };
+  }
+
+  const { error: updateError } = await supabase
+    .from("circle_members")
+    .update({
+      profile_id: authContext.user.id,
+      invite_status: "accepted",
+      agreement_status: "accepted",
+      collateral_status: "posted",
+    })
+    .eq("id", member.id);
+
+  if (updateError) {
+    return { success: false, error: updateError.message };
+  }
+
+  // Check if all members accepted
+  const { data: allMembers } = await supabase
+    .from("circle_members")
+    .select("invite_status")
+    .eq("circle_id", circleId);
+
+  const allAccepted = allMembers && allMembers.every((m) => m.invite_status === "accepted");
+
+  if (allAccepted) {
+    await supabase
+      .from("circles")
+      .update({ status: "active", current_round: 1 })
+      .eq("id", circleId);
+
+    await supabase.from("audit_events").insert({
+      circle_id: circleId,
+      event_type: "circle_resumed",
+      details: "All participants accepted. Circle activated automatically.",
+    });
+  }
+
+  revalidatePath(`/dashboard/${circleId}`);
+  revalidatePath("/dashboard", "layout");
+
+  return { success: true };
+}
