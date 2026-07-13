@@ -119,6 +119,7 @@ export interface DashboardAuditEvent {
 
 export interface DashboardNotification {
   id: string;
+  circleId?: string;
   notificationType: string;
   title: string;
   body: string;
