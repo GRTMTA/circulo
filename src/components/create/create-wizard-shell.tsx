@@ -24,6 +24,8 @@ import {
   validateCollateral,
   validateRoster,
 } from "@/lib/create/validation";
+import { StellarWalletsKit, KitEventType } from "@/config/stellar";
+import type { KitEventStateUpdated } from "@creit.tech/stellar-wallets-kit";
 
 const steps = ["Basics", "Roster", "Collateral", "Payout Order", "Review"];
 
@@ -37,6 +39,58 @@ export function CreateWizardShell() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [stepErrors, setStepErrors] = useState<Record<string, string>>({});
   const [attempted, setAttempted] = useState(false);
+  const [creatorAddress, setCreatorAddress] = useState<string | null>(null);
+
+  // Hook into the active Stellar wallet session
+  useEffect(() => {
+    StellarWalletsKit.getAddress()
+      .then((res) => {
+        if (res?.address) setCreatorAddress(res.address);
+      })
+      .catch(() => {});
+
+    const unsubState = StellarWalletsKit.on(KitEventType.STATE_UPDATED, (event: KitEventStateUpdated) => {
+      if (event?.payload?.address) {
+        setCreatorAddress(event.payload.address);
+      }
+    });
+
+    const unsubDisconnect = StellarWalletsKit.on(KitEventType.DISCONNECT, () => {
+      setCreatorAddress(null);
+    });
+
+    return () => {
+      unsubState();
+      unsubDisconnect();
+    };
+  }, []);
+
+  // Automatically update the creator's entry address in the roster when a wallet is connected
+  useEffect(() => {
+    if (creatorAddress) {
+      Promise.resolve().then(() => {
+        setRoster((current) => {
+          const hasCreatorPlaceholder = current.some(
+            (m) =>
+              m.walletAddress === "GAAAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNOOOPPPQQQRRR2" ||
+              m.displayName === "Ari Santos"
+          );
+          if (hasCreatorPlaceholder) {
+            return current.map((m) => {
+              if (
+                m.walletAddress === "GAAAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNOOOPPPQQQRRR2" ||
+                m.displayName === "Ari Santos"
+              ) {
+                return { ...m, walletAddress: creatorAddress };
+              }
+              return m;
+            });
+          }
+          return current;
+        });
+      });
+    }
+  }, [creatorAddress]);
 
   // Synchronize payoutOrder state when the roster changes
   useEffect(() => {
@@ -121,7 +175,7 @@ export function CreateWizardShell() {
     // Final step — submit
     setIsSubmitting(true);
     try {
-      const res = await createCircleAction(basics, roster, collateral, payoutOrder);
+      const res = await createCircleAction(basics, roster, collateral, payoutOrder, creatorAddress || undefined);
       if (res.success && res.circleId) {
         toast.success("Circle draft created successfully");
         router.push(`/dashboard/${res.circleId}`);
