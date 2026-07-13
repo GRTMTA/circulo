@@ -16,11 +16,16 @@ export default async function DashboardLayout({
     requireAuthenticatedUser("/dashboard"),
   ]);
 
+  console.log("DashboardLayout - authContext.profile:", authContext.profile);
+
   const appShellUser = authContext.user
     ? {
-        name: authContext.profile?.full_name || authContext.user.email || "Ari Santos",
+        name: authContext.profile?.full_name || authContext.user.user_metadata?.full_name || authContext.user.email || "Ari Santos",
         email: authContext.user.email,
         badge: authContext.profile?.full_name ? "Member" : undefined,
+        description: authContext.profile?.username || undefined,
+        username: authContext.profile?.username,
+        walletAddress: authContext.profile?.wallet_address,
       }
     : undefined;
   const showOnboarding = !authContext.profile?.onboarding_completed_at;

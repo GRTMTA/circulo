@@ -25,7 +25,7 @@ export default async function AgreementPage({
         { label: "Agreement" },
       ]}
     >
-      <MemberAgreementScreen circleName={data.circle.name} rules={mockAgreementRules} />
+      <MemberAgreementScreen circleId={circleId} circleName={data.circle.name} rules={mockAgreementRules} />
     </DashboardShell>
   );
 }

@@ -45,7 +45,7 @@ function getFlowSteps(circle: DashboardCircle, member?: DashboardMember): FlowSt
       icon: Timer,
       title: `Grace period (${circle.gracePeriodHours}h)`,
       description: `Member has ${circle.gracePeriodHours} hour${circle.gracePeriodHours !== 1 ? "s" : ""} to pay after missing the deadline. No penalty during this window.`,
-      status: member?.paymentStatus === "grace_period" ? "active" : "inactive",
+      status: (member?.paymentStatus as string) === "grace_period" ? "active" : "inactive",
     },
     {
       icon: AlertTriangle,

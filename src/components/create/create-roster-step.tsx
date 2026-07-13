@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertCircle, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, Plus, Trash2, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { InfoTip } from "@/components/ui/info-tip";
 import { Input } from "@/components/ui/input";
 import type { CreateRosterMember } from "@/lib/mocks";
 import { validateRosterEntry } from "@/lib/create/validation";
+import { resolveUserByUsernameAction } from "@/app/dashboard/actions";
 
 export function CreateRosterStep({
   members,
@@ -27,13 +28,45 @@ export function CreateRosterStep({
   const [displayName, setDisplayName] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
   const [entryErrors, setEntryErrors] = useState<Record<string, string>>({});
+  const [resolving, setResolving] = useState(false);
 
-  function handleAdd() {
-    const fieldErrors = validateRosterEntry(displayName, walletAddress, members);
+  async function handleAdd() {
+    const cleanWallet = walletAddress.trim();
+    const isStellarAddress = cleanWallet.toUpperCase().startsWith("G") && cleanWallet.length === 56;
+    let resolvedWallet = isStellarAddress ? cleanWallet.toUpperCase() : cleanWallet;
+    let resolvedName = displayName.trim();
+
+    if (!isStellarAddress && cleanWallet.length > 0) {
+      setResolving(true);
+      try {
+        const res = await resolveUserByUsernameAction(walletAddress);
+        if (res.success) {
+          resolvedWallet = res.walletAddress || "";
+          if (!resolvedWallet) {
+            setEntryErrors({ walletAddress: "This user has not connected a Stellar wallet yet." });
+            setResolving(false);
+            return;
+          }
+          resolvedName = res.displayName || resolvedName || walletAddress.replace(/^@/, "");
+        } else {
+          setEntryErrors({ walletAddress: "User ID not found." });
+          setResolving(false);
+          return;
+        }
+      } catch {
+        setEntryErrors({ walletAddress: "Failed to resolve User ID." });
+        setResolving(false);
+        return;
+      } finally {
+        setResolving(false);
+      }
+    }
+
+    const fieldErrors = validateRosterEntry(resolvedName, resolvedWallet, members);
     setEntryErrors(fieldErrors);
     if (Object.keys(fieldErrors).length > 0) return;
 
-    onAddMember({ displayName: displayName.trim(), walletAddress: walletAddress.trim() });
+    onAddMember({ displayName: resolvedName, walletAddress: resolvedWallet });
     setDisplayName("");
     setWalletAddress("");
     setEntryErrors({});
@@ -56,18 +89,18 @@ export function CreateRosterStep({
         </Field>
         <Field>
           <div className="flex items-center gap-1.5">
-            <FieldLabel htmlFor="member-wallet">Wallet address</FieldLabel>
-            <InfoTip>A Stellar public key starting with G, exactly 56 characters. Each member needs a funded Stellar wallet.</InfoTip>
+            <FieldLabel htmlFor="member-wallet">Wallet address or User ID</FieldLabel>
+            <InfoTip>Enter a Stellar public key starting with G (56 chars), or a unique 6-digit User ID (e.g. 192083) to invite them.</InfoTip>
           </div>
           <Input
             id="member-wallet"
             value={walletAddress}
-            onChange={(event) => setWalletAddress(event.target.value.toUpperCase().trim())}
-            placeholder="GAAAABBB... (56 characters)"
+            onChange={(event) => setWalletAddress(event.target.value.trim())}
+            placeholder="GAAAABBB... or 192083"
             aria-invalid={!!entryErrors.walletAddress}
           />
           <FieldDescription>
-            Wallet roster locks before activation. 
+            Roster locks before activation. 
             <span className="block mt-1 font-mono text-[10px] text-muted-foreground">
               Mock format: GAAAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNOOOPPPQQQRRR5
             </span>
@@ -79,11 +112,20 @@ export function CreateRosterStep({
         <Button
           type="button"
           className="md:mt-7"
-          disabled={members.length >= memberCount}
+          disabled={members.length >= memberCount || resolving}
           onClick={handleAdd}
         >
-          <Plus className="size-4" />
-          Add
+          {resolving ? (
+            <>
+              <Loader2 className="size-4 animate-spin" />
+              Resolving...
+            </>
+          ) : (
+            <>
+              <Plus className="size-4" />
+              Add
+            </>
+          )}
         </Button>
       </div>
 

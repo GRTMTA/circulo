@@ -12,6 +12,7 @@ import {
   Search,
   type LucideIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 
 // CircleSwitcher import removed as it is now redundant.
 import { SidebarProvider } from "@/components/dashboard/sidebar-context";
@@ -48,6 +49,8 @@ export interface AppShellUser {
   avatarFallback?: string;
   badge?: string;
   description?: string;
+  username?: string | null;
+  walletAddress?: string | null;
 }
 
 export interface AppShellBrand {
@@ -386,41 +389,52 @@ export function AppShell({
                       </AvatarFallback>
                     </Avatar>
                   </PopoverTrigger>
-                  <PopoverContent align="end" sideOffset={10} className="w-72 p-3">
-                    <div className="border-b border-[var(--color-border-muted)] px-3 py-3">
-                      <p className="truncate text-base font-semibold text-[var(--color-text-default)]">
-                        {user.name}
-                      </p>
-                      {user.email ? (
-                        <p className="truncate text-sm text-[var(--color-text-alternative)]">
-                          {user.email}
-                        </p>
-                      ) : null}
-                    </div>
-                    {user.badge || user.description ? (
-                      <div className="mt-3 space-y-3 px-3 pb-2">
-                        {user.badge ? (
-                          <span className="inline-flex rounded-full bg-[var(--color-background-muted)] px-3 py-1 text-xs font-semibold text-[var(--color-text-default)]">
-                            {user.badge}
-                          </span>
-                        ) : null}
-                        {user.description ? (
-                          <p className="text-sm leading-6 text-[var(--color-text-alternative)]">
-                            {user.description}
+                  <PopoverContent align="end" sideOffset={10} className="w-64 p-3 border border-[var(--color-border-muted)] bg-[var(--color-background-default)] shadow-xl rounded-2xl">
+                    <div className="flex flex-col gap-3">
+                      {/* User Header */}
+                      <div className="flex items-center gap-3">
+                        <Avatar className="size-11 border border-[var(--color-border-muted)] bg-[var(--color-background-default)]">
+                          <AvatarImage src={user.avatarSrc ?? undefined} alt={user.name} />
+                          <AvatarFallback className="bg-[var(--color-background-muted)] text-[var(--color-text-default)]">
+                            {userInitials}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="truncate text-sm font-bold text-[var(--color-text-default)]">
+                            {user.name}
+                          </h4>
+                          <p className="truncate text-xs font-mono font-semibold text-indigo-500 mt-0.5">
+                            ID: {user.username || "Not Set"}
                           </p>
-                        ) : null}
+                        </div>
                       </div>
-                    ) : null}
-                    <div className="mt-2 border-t border-[var(--color-border-muted)] pt-2 px-1">
-                      <Button
-                        variant="ghost"
-                        className="w-full justify-start text-[0.8rem] font-semibold text-[var(--color-error-default)] hover:bg-[var(--color-error-muted)] hover:text-[var(--color-error-default)]"
-                        onClick={async () => {
-                          await logoutAction();
-                        }}
-                      >
-                        Sign Out
-                      </Button>
+
+                      {/* Actions */}
+                      <div className="border-t border-[var(--color-border-muted)] pt-2 flex flex-col gap-1.5">
+                        {user.username ? (
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-full text-xs font-semibold h-8"
+                            onClick={() => {
+                              navigator.clipboard.writeText(user.username || "");
+                              toast.success("User ID copied to clipboard!");
+                            }}
+                          >
+                            Copy User ID
+                          </Button>
+                        ) : null}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full text-xs font-semibold h-8 text-[var(--color-error-default)] hover:bg-[var(--color-error-muted)] hover:text-[var(--color-error-default)]"
+                          onClick={async () => {
+                            await logoutAction();
+                          }}
+                        >
+                          Sign Out
+                        </Button>
+                      </div>
                     </div>
                   </PopoverContent>
                 </Popover>
