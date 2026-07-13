@@ -594,3 +594,89 @@ export async function acceptAgreementAction(circleId: string, notificationId?: s
 
   return { success: true };
 }
+
+
+export async function activateCircleAction(circleId: string) {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const supabase = await createServerSupabaseClient();
+
+  // 1. Verify user is the creator
+  const { data: circle } = await supabase
+    .from("circles")
+    .select("id, creator_id, status, settings_locked, payout_order_locked, rules_locked")
+    .eq("id", circleId)
+    .single();
+
+  if (!circle) {
+    return { success: false, error: "Circle not found." };
+  }
+
+  if (circle.creator_id !== authContext.user.id) {
+    return { success: false, error: "Only the circle creator can activate." };
+  }
+
+  if (circle.status !== "draft") {
+    return { success: false, error: "Only draft circles can be activated." };
+  }
+
+  // 2. Check all settings are locked
+  if (!circle.settings_locked || !circle.payout_order_locked || !circle.rules_locked) {
+    return { success: false, error: "Lock all settings, payout order, and rules before activation." };
+  }
+
+  // 3. Check all members have accepted invite, posted collateral, and accepted agreement
+  const { data: members } = await supabase
+    .from("circle_members")
+    .select("id, invite_status, collateral_status, agreement_status")
+    .eq("circle_id", circleId);
+
+  if (!members || members.length === 0) {
+    return { success: false, error: "Circle has no members." };
+  }
+
+  const allAccepted = members.every((m) => m.invite_status === "accepted");
+  if (!allAccepted) {
+    return { success: false, error: "All members must accept their invite before activation." };
+  }
+
+  const allCollateralPosted = members.every((m) => m.collateral_status === "posted");
+  if (!allCollateralPosted) {
+    const pending = members.filter((m) => m.collateral_status !== "posted").length;
+    return { success: false, error: `${pending} member${pending > 1 ? "s have" : " has"} not posted collateral. All members must post collateral before activation.` };
+  }
+
+  const allAgreementsAccepted = members.every((m) => m.agreement_status === "accepted");
+  if (!allAgreementsAccepted) {
+    return { success: false, error: "All members must accept the circle agreement before activation." };
+  }
+
+  // 4. All gates pass — activate the circle
+  const { error: updateError } = await supabase
+    .from("circles")
+    .update({
+      status: "active",
+      current_round: 1,
+      start_date: new Date().toISOString(),
+    })
+    .eq("id", circleId);
+
+  if (updateError) {
+    return { success: false, error: updateError.message };
+  }
+
+  // 5. Log the activation event
+  await supabase.from("audit_events").insert({
+    circle_id: circleId,
+    event_type: "circle_activated",
+    member_id: null,
+  });
+
+  revalidatePath(`/dashboard/${circleId}`);
+  revalidatePath("/dashboard", "layout");
+
+  return { success: true };
+}
