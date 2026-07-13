@@ -93,14 +93,17 @@ export async function registerAction(
   const configError = assertConfigured();
   if (configError) return configError;
 
-  const fullName = getString(formData, "name");
+  const givenName = getString(formData, "givenName").trim();
+  const lastName = getString(formData, "lastName").trim();
   const email = getString(formData, "email").toLowerCase();
   const password = getString(formData, "password");
   const confirmPassword = getString(formData, "confirmPassword");
 
-  if (!fullName || !email || !password || !confirmPassword) {
+  if (!givenName || !lastName || !email || !password || !confirmPassword) {
     return errorState("Complete every field to create your account.");
   }
+
+  const fullName = `${givenName} ${lastName}`;
 
   if (password.length < 8) {
     return errorState("Use at least 8 characters for your password.");

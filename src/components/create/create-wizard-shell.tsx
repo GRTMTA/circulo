@@ -29,11 +29,18 @@ import type { KitEventStateUpdated } from "@creit.tech/stellar-wallets-kit";
 
 const steps = ["Basics", "Roster", "Collateral", "Payout Order", "Review"];
 
-export function CreateWizardShell() {
+export function CreateWizardShell({ defaultCreatorName }: { defaultCreatorName?: string }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [basics, setBasics] = useState(mockCreateBasicsState);
-  const [roster, setRoster] = useState(mockCreateRosterState);
+  const [roster, setRoster] = useState(() => {
+    return mockCreateRosterState.map((member) => {
+      if (member.displayName === "Ari Santos") {
+        return { ...member, displayName: defaultCreatorName || "Ari Santos" };
+      }
+      return member;
+    });
+  });
   const [collateral, setCollateral] = useState(mockCreateCollateralState);
   const [payoutOrder, setPayoutOrder] = useState(mockCreatePayoutOrderState);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -73,13 +80,15 @@ export function CreateWizardShell() {
           const hasCreatorPlaceholder = current.some(
             (m) =>
               m.walletAddress === "GAAAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNOOOPPPQQQRRR2" ||
-              m.displayName === "Ari Santos"
+              m.displayName === "Ari Santos" ||
+              (defaultCreatorName && m.displayName === defaultCreatorName)
           );
           if (hasCreatorPlaceholder) {
             return current.map((m) => {
               if (
                 m.walletAddress === "GAAAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNOOOPPPQQQRRR2" ||
-                m.displayName === "Ari Santos"
+                m.displayName === "Ari Santos" ||
+                (defaultCreatorName && m.displayName === defaultCreatorName)
               ) {
                 return { ...m, walletAddress: creatorAddress };
               }
@@ -90,7 +99,7 @@ export function CreateWizardShell() {
         });
       });
     }
-  }, [creatorAddress]);
+  }, [creatorAddress, defaultCreatorName]);
 
   // Synchronize payoutOrder state when the roster changes
   useEffect(() => {
