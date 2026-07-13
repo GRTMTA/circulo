@@ -175,6 +175,22 @@ export async function createCircleAction(
     });
   }
 
+  // Resolve profile_ids from the profiles table for invited members
+  const walletAddresses = roster.map(m => m.walletAddress.trim().toUpperCase());
+  const { data: resolvedProfiles } = await supabase
+    .from("profiles")
+    .select("id, wallet_address")
+    .in("wallet_address", walletAddresses);
+
+  const profileMap = new Map<string, string>();
+  if (resolvedProfiles) {
+    resolvedProfiles.forEach((p) => {
+      if (p.wallet_address) {
+        profileMap.set(p.wallet_address.trim().toUpperCase(), p.id);
+      }
+    });
+  }
+
   // Insert all other roster members
   roster.forEach((member, index) => {
     if (member.walletAddress.toUpperCase() === creatorAddress.toUpperCase()) {
@@ -183,9 +199,11 @@ export async function createCircleAction(
 
     const payoutItem = payoutOrder.find((p) => p.walletAddress.toUpperCase() === member.walletAddress.toUpperCase());
     const payoutRound = payoutItem ? payoutItem.payoutRound : index + 2;
+    const resolvedProfileId = profileMap.get(member.walletAddress.trim().toUpperCase()) || null;
 
     membersToInsert.push({
       circle_id: circle.id,
+      profile_id: resolvedProfileId,
       display_name: member.displayName,
       wallet_address: member.walletAddress,
       role: "member",
@@ -207,6 +225,32 @@ export async function createCircleAction(
     // clean up created circle on failure
     await supabase.from("circles").delete().eq("id", circle.id);
     return { success: false, error: membersError.message };
+  }
+
+  // 3. Insert invite notifications for members who have accounts
+  const { data: insertedMembers } = await supabase
+    .from("circle_members")
+    .select("id, profile_id")
+    .eq("circle_id", circle.id);
+
+  if (insertedMembers) {
+    const currentUserId = authContext.user.id;
+    const notificationsToInsert = insertedMembers
+      .filter((m) => m.profile_id && m.profile_id !== currentUserId)
+      .map((m) => ({
+        circle_id: circle.id,
+        profile_id: m.profile_id,
+        member_id: m.id,
+        notification_type: "invite",
+        title: "Savings Circle Invitation",
+        body: `You have been invited to join the rotating savings circle "${basics.name}". Click to accept and deposit collateral.`,
+      }));
+
+    if (notificationsToInsert.length > 0) {
+      await supabase
+        .from("member_notifications")
+        .insert(notificationsToInsert);
+    }
   }
 
   // Revalidate the dashboard paths so the sidebar updates
@@ -444,7 +488,7 @@ export async function updateProfileWalletAction(walletAddress: string) {
   return { success: true };
 }
 
-export async function acceptAgreementAction(circleId: string) {
+export async function acceptAgreementAction(circleId: string, notificationId?: string, txHash?: string) {
   const authContext = await requireAuthenticatedUser("/dashboard");
   if (!authContext.configured || !authContext.user) {
     return { success: false, error: "Not authenticated" };
@@ -506,6 +550,14 @@ export async function acceptAgreementAction(circleId: string) {
     return { success: false, error: updateError.message };
   }
 
+  // If a notification ID is provided, mark it as read
+  if (notificationId) {
+    await supabase
+      .from("member_notifications")
+      .update({ read_at: new Date().toISOString() })
+      .eq("id", notificationId);
+  }
+
   // Check if all members accepted
   const { data: allMembers } = await supabase
     .from("circle_members")
@@ -517,13 +569,23 @@ export async function acceptAgreementAction(circleId: string) {
   if (allAccepted) {
     await supabase
       .from("circles")
-      .update({ status: "active", current_round: 1 })
+      .update({ status: "active", current_round: 1, start_date: new Date().toISOString() })
       .eq("id", circleId);
 
     await supabase.from("audit_events").insert({
       circle_id: circleId,
       event_type: "circle_resumed",
+      tx_hash: txHash || null,
       details: "All participants accepted. Circle activated automatically.",
+    });
+  } else {
+    // Audit log individual join
+    await supabase.from("audit_events").insert({
+      circle_id: circleId,
+      member_id: member.id,
+      event_type: "member_joined",
+      tx_hash: txHash || null,
+      details: "Participant accepted invite and deposited collateral.",
     });
   }
 
