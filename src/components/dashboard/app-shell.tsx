@@ -417,8 +417,42 @@ export function AppShell({
                             size="sm" 
                             className="w-full text-xs font-semibold h-8"
                             onClick={() => {
-                              navigator.clipboard.writeText(user.username || "");
-                              toast.success("User ID copied to clipboard!");
+                              const text = user.username || "";
+                              if (typeof window !== "undefined") {
+                                if (navigator.clipboard && navigator.clipboard.writeText) {
+                                  navigator.clipboard.writeText(text)
+                                    .then(() => toast.success("User ID copied to clipboard!"))
+                                    .catch(() => {
+                                      const textArea = document.createElement("textarea");
+                                      textArea.value = text;
+                                      textArea.style.position = "fixed";
+                                      document.body.appendChild(textArea);
+                                      textArea.focus();
+                                      textArea.select();
+                                      try {
+                                        document.execCommand("copy");
+                                        toast.success("User ID copied to clipboard!");
+                                      } catch {
+                                        toast.error("Failed to copy User ID.");
+                                      }
+                                      document.body.removeChild(textArea);
+                                    });
+                                } else {
+                                  const textArea = document.createElement("textarea");
+                                  textArea.value = text;
+                                  textArea.style.position = "fixed";
+                                  document.body.appendChild(textArea);
+                                  textArea.focus();
+                                  textArea.select();
+                                  try {
+                                    document.execCommand("copy");
+                                    toast.success("User ID copied to clipboard!");
+                                  } catch {
+                                    toast.error("Failed to copy User ID.");
+                                  }
+                                  document.body.removeChild(textArea);
+                                }
+                              }
                             }}
                           >
                             Copy User ID
