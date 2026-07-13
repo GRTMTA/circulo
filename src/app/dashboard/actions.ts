@@ -389,6 +389,27 @@ export async function resolveUserByUsernameAction(username: string) {
   };
 }
 
+export async function resolveUserByWalletAction(walletAddress: string) {
+  const supabase = await createServerSupabaseClient();
+  const cleanWallet = walletAddress.trim().toUpperCase();
+
+  const { data: profile, error } = await supabase
+    .from("profiles")
+    .select("full_name, username")
+    .eq("wallet_address", cleanWallet)
+    .maybeSingle();
+
+  if (error || !profile) {
+    return { success: false, error: "Wallet not found in profiles." };
+  }
+
+  return {
+    success: true,
+    displayName: profile.full_name || `@${profile.username}`,
+    username: profile.username,
+  };
+}
+
 export async function updateProfileWalletAction(walletAddress: string) {
   const authContext = await requireAuthenticatedUser("/dashboard");
   if (!authContext.configured || !authContext.user) {
