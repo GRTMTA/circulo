@@ -103,6 +103,11 @@ export function CreateRosterStep({
     const cleanId = userId.trim();
     const cleanWallet = walletAddress.trim();
 
+    if (members.length >= memberCount) {
+      setEntryErrors({ walletAddress: `Cannot add more than ${memberCount} members (configured limit).` });
+      return;
+    }
+
     if (!cleanWallet) {
       setEntryErrors({ walletAddress: "Wallet address is required." });
       return;
@@ -136,6 +141,18 @@ export function CreateRosterStep({
 
   return (
     <div className="grid gap-6">
+      {/* Roster Capacity Badge */}
+      <div className="flex items-center justify-between bg-[var(--color-background-muted)]/30 border border-[var(--color-border-muted)] px-4 py-2.5 rounded-xl">
+        <span className="text-xs font-semibold text-muted-foreground">Roster Size limit</span>
+        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+          members.length === memberCount 
+            ? "bg-green-500/10 text-green-500 border-green-500/20" 
+            : "bg-indigo-500/10 text-indigo-500 border-indigo-500/20"
+        }`}>
+          {members.length} / {memberCount} Members
+        </span>
+      </div>
+
       {/* Two Input Fields */}
       <div className="grid gap-4 md:grid-cols-2 md:items-start">
         {/* User ID Field */}
@@ -197,7 +214,7 @@ export function CreateRosterStep({
         <Button 
           type="button" 
           onClick={handleAdd} 
-          disabled={resolving || (!userId.trim() && !walletAddress.trim())} 
+          disabled={resolving || (!userId.trim() && !walletAddress.trim()) || members.length >= memberCount} 
           className="font-semibold h-11"
         >
           {resolving ? <Loader2 className="size-4 animate-spin mr-2" /> : <Plus className="size-4 mr-2" />}
