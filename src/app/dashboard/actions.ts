@@ -368,11 +368,17 @@ export async function cancelCircleAction(circleId: string, reason: string) {
 
 export async function resolveUserByUsernameAction(username: string) {
   const supabase = await createServerSupabaseClient();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const dbClient = serviceRoleKey
+    ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
+    : supabase;
   
   // Clean username input (trim and remove leading @ if present)
   const cleanUsername = username.replace(/^@/, "").trim();
   
-  const { data: profile, error } = await supabase
+  const { data: profile, error } = await dbClient
     .from("profiles")
     .select("full_name, wallet_address")
     .eq("username", cleanUsername)
@@ -391,9 +397,16 @@ export async function resolveUserByUsernameAction(username: string) {
 
 export async function resolveUserByWalletAction(walletAddress: string) {
   const supabase = await createServerSupabaseClient();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const dbClient = serviceRoleKey
+    ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
+    : supabase;
+
   const cleanWallet = walletAddress.trim().toUpperCase();
 
-  const { data: profile, error } = await supabase
+  const { data: profile, error } = await dbClient
     .from("profiles")
     .select("full_name, username")
     .eq("wallet_address", cleanWallet)
