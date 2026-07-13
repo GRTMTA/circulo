@@ -24,7 +24,7 @@ export interface CreatePayoutOrderItem extends CreateRosterMember {
 export const mockCreateBasicsState: CreateBasicsState = {
   name: "Makati Friday Circle",
   contributionAmount: 10,
-  contributionAsset: "USDC",
+  contributionAsset: "XLM",
   intervalSeconds: 86_400,
   memberCount: 5,
 };

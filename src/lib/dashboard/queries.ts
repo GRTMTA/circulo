@@ -140,6 +140,7 @@ interface AuditEventRow {
 
 interface NotificationRow {
   id: string;
+  circle_id: string;
   notification_type: string;
   title: string;
   body: string;
@@ -251,6 +252,7 @@ function mapAuditEvent(row: AuditEventRow): DashboardAuditEvent {
 function mapNotification(row: NotificationRow): DashboardNotification {
   return {
     id: row.id,
+    circleId: row.circle_id,
     notificationType: row.notification_type,
     title: row.title,
     body: row.body,

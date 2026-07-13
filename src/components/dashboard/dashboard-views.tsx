@@ -66,9 +66,24 @@ import {
   pauseCircleAction,
   resumeCircleAction,
   cancelCircleAction,
+  acceptAgreementAction,
 } from "@/app/dashboard/actions";
 import { ContributionReminderBanner } from "@/components/reminders/contribution-reminder-banner";
 import { ReminderSettingsPanel } from "@/components/reminders/reminder-settings-panel";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { StellarWalletsKit } from "@/config/stellar";
+import { triggerContributeOnChain } from "@/services/contractService";
+import { rpc, TransactionBuilder } from "@stellar/stellar-sdk";
 import type {
   CreatorDashboardDTO,
   DashboardAuditEvent,
@@ -78,6 +93,7 @@ import type {
   DashboardPayout,
   DashboardRound,
   MemberDashboardDTO,
+  DashboardNotification,
 } from "@/lib/dashboard/types";
 
 // navigation variables removed as sidebar is constructed dynamically by the parent AppShell.
@@ -818,6 +834,96 @@ function MemberDashboard({
   data: MemberDashboardDTO;
   isTabContentOnly?: boolean;
 }) {
+  const [activeInviteNotification, setActiveInviteNotification] = useState<DashboardNotification | null>(null);
+  const [isAcceptingInvite, setIsAcceptingInvite] = useState(false);
+  const [inviteActionError, setInviteActionError] = useState<string | null>(null);
+
+  const handleAcceptInvite = async () => {
+    if (!activeInviteNotification) return;
+    setIsAcceptingInvite(true);
+    setInviteActionError(null);
+
+    const circleId = activeInviteNotification.circleId || data.circle.id;
+    const notificationId = activeInviteNotification.id;
+
+    try {
+      // 1. Connect wallet & fetch active address
+      const addressRes = await StellarWalletsKit.getAddress();
+      const userAddress = addressRes?.address;
+      if (!userAddress) {
+        throw new Error("Stellar wallet address not found. Please connect your wallet first.");
+      }
+
+      // Placeholder addresses for contract & asset ID
+      const contractAddress = process.env.NEXT_PUBLIC_CIRCULO_CONTRACT_ID || "CCW67CX2SCNV6HGKHWBW4ZPQUR75V343JAG57AXJ223QD2D6Z4Z4Z4Z4";
+      const tokenIdAddress = data.circle.contributionAsset === "XLM" 
+        ? "CAS3J7GYCCK7G37WO5FCEXSQ4H37QCWWHN7UVE4V545Z5TSS35FE32A7" 
+        : "CCW67CX2SCNV6HGKHWBW4ZPQUR75V343JAG57AXJ223QD2D6Z4Z4Z4Z4";
+      
+      const collateralAmount = data.circle.collateralAmount;
+
+      // 2. Build contribute transaction on-chain via service
+      const { txXdr } = await triggerContributeOnChain(
+        userAddress,
+        contractAddress,
+        tokenIdAddress,
+        collateralAmount * 10000000 // Convert to Stroops (7 decimal places)
+      );
+
+      // 3. Prompt Freighter/connected wallet to sign transaction
+      const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
+        networkPassphrase: process.env.NEXT_PUBLIC_SOROBAN_NETWORK_PASSPHRASE || "Test SDF Network ; September 2015",
+        address: userAddress,
+      });
+
+      // 4. Submit to Soroban RPC
+      const rpcServer = new rpc.Server(process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org");
+      const transaction = TransactionBuilder.fromXDR(signedTxXdr, process.env.NEXT_PUBLIC_SOROBAN_NETWORK_PASSPHRASE || "Test SDF Network ; September 2015");
+      
+      // Submit the transaction
+      const submitRes = await rpcServer.sendTransaction(transaction);
+      const txHash = submitRes.hash;
+
+      // 5. Call server action to accept invite and register collateral post
+      const res = await acceptAgreementAction(circleId, notificationId, txHash);
+      if (res.success) {
+        toast.success("Invitation accepted and collateral posted successfully!");
+        setActiveInviteNotification(null);
+      } else {
+        throw new Error(res.error || "Failed to accept circle invitation.");
+      }
+
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      console.error("Invite acceptance error:", error);
+      // Friendly toast with option to simulate
+      toast.error(error.message || "Failed to accept invite.");
+      
+      // Show simulated acceptance action for demo/hackathon ease if ledger environment fails
+      toast("Simulated Acceptance", {
+        description: "Would you like to bypass the live ledger wallet submission for this demo?",
+        action: {
+          label: "Simulate Accept",
+          onClick: async () => {
+            setIsAcceptingInvite(true);
+            const mockTxHash = "mock_tx_" + Math.random().toString(36).substring(7);
+            const res = await acceptAgreementAction(circleId, notificationId, mockTxHash);
+            if (res.success) {
+              toast.success("Invitation accepted (Simulated)!");
+              setActiveInviteNotification(null);
+            } else {
+              toast.error(res.error || "Failed to simulate accept.");
+            }
+            setIsAcceptingInvite(false);
+          }
+        }
+      });
+      setInviteActionError(error.message || "Failed to process on-chain transaction.");
+    } finally {
+      setIsAcceptingInvite(false);
+    }
+  };
+
   const currentRound = getCurrentRound(data.rounds, data.circle.currentRound);
   const myContribution = data.contributions.find(
     (contribution) =>
@@ -933,15 +1039,41 @@ function MemberDashboard({
         <SectionCard title="Notifications" description="Member-facing status updates and action reminders.">
           {data.notifications.length > 0 ? (
             <div className="grid gap-3">
-              {data.notifications.map((notification) => (
-                <div key={notification.id} className="rounded-xl border border-border bg-white p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="font-semibold">{notification.title}</p>
-                    <StatusBadge status={notification.readAt ? "completed" : "pending"} />
+              {data.notifications.map((notification) => {
+                const isInvite = notification.notificationType === "invite" && !notification.readAt;
+                return (
+                  <div
+                    key={notification.id}
+                    className={cn(
+                      "rounded-xl border border-border bg-white p-4 transition-all",
+                      isInvite && "cursor-pointer hover:border-indigo-500/50 hover:bg-indigo-500/[0.01]"
+                    )}
+                    onClick={() => {
+                      if (isInvite) {
+                        setActiveInviteNotification(notification);
+                      }
+                    }}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold">{notification.title}</p>
+                        {isInvite && (
+                          <Badge variant="outline" className="text-xs bg-indigo-500/10 text-indigo-500 border-indigo-500/20 font-medium">
+                            Action Required
+                          </Badge>
+                        )}
+                      </div>
+                      <StatusBadge status={notification.readAt ? "completed" : "pending"} />
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">{notification.body}</p>
+                    {isInvite && (
+                      <p className="mt-3 text-xs text-indigo-500 font-semibold flex items-center gap-1">
+                        Click to review invitation & deposit collateral →
+                      </p>
+                    )}
                   </div>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{notification.body}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">No notifications yet.</p>
@@ -951,6 +1083,86 @@ function MemberDashboard({
           reminderScheduleHours={data.circle.reminderScheduleHours}
         />
       </TabsContent>
+
+      <Dialog
+        open={!!activeInviteNotification}
+        onOpenChange={(open) => {
+          if (!open) {
+            setActiveInviteNotification(null);
+            setInviteActionError(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Savings Circle Invitation</DialogTitle>
+            <DialogDescription>
+              Confirm your participation in the savings circle and post your collateral deposit.
+            </DialogDescription>
+          </DialogHeader>
+
+          {activeInviteNotification && (
+            <div className="mt-4 space-y-4">
+              <div className="rounded-xl border border-border bg-slate-50 p-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Circle Name</span>
+                  <span className="font-semibold text-foreground">{data.circle.name}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Contribution Amount</span>
+                  <span className="font-semibold text-foreground">
+                    {data.circle.contributionAmount} {data.circle.contributionAsset}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Collateral Required</span>
+                  <span className="font-bold text-indigo-600">
+                    {data.circle.collateralAmount} {data.circle.contributionAsset}
+                  </span>
+                </div>
+              </div>
+
+              <div className="text-xs text-muted-foreground bg-indigo-50 border border-indigo-100 p-3 rounded-xl leading-5">
+                <span className="font-bold text-indigo-600 block mb-1">🔒 Non-Custodial Escrow Security</span>
+                Accepting this invitation requires you to deposit the collateral to the circle&apos;s automated smart contract escrow. The platform operators never hold or control your funds. The deposit will be automatically deducted from your connected Stellar wallet.
+              </div>
+
+              {inviteActionError && (
+                <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 p-3 rounded-xl">
+                  {inviteActionError}
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0 mt-6">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setActiveInviteNotification(null);
+                setInviteActionError(null);
+              }}
+              disabled={isAcceptingInvite}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAcceptInvite}
+              disabled={isAcceptingInvite}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold flex items-center justify-center min-w-[120px]"
+            >
+              {isAcceptingInvite ? (
+                <>
+                  <Loader2 className="size-4 animate-spin mr-2" />
+                  Processing...
+                </>
+              ) : (
+                "Accept & Pay"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 
