@@ -188,10 +188,12 @@ export function CreateRosterStep({
   return (
     <div className="grid gap-6">
       {/* Roster Capacity Badge */}
-      <div className="flex items-center justify-between bg-[var(--color-background-muted)]/30 border border-[var(--color-border-muted)] px-4 py-2.5 rounded-xl">
-        <span className="text-xs font-semibold text-muted-foreground">Roster size limit</span>
+      <div className="flex items-center justify-between gap-3 bg-[var(--color-background-muted)]/30 border border-[var(--color-border-muted)] px-4 py-2.5 rounded-xl">
+        <span className="text-xs font-semibold text-muted-foreground">
+          Invite up to {memberCount} — you can add more later
+        </span>
         <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
-          members.length === memberCount
+          members.length >= memberCount
             ? "bg-green-500/10 text-green-500 border-green-500/20"
             : "bg-indigo-500/10 text-indigo-500 border-indigo-500/20"
         }`}>
@@ -328,7 +330,7 @@ export function CreateRosterStep({
             {members.length === 0 && (
               <tr>
                 <td colSpan={3} className="px-4 py-8 text-center text-muted-foreground">
-                  No participants added yet. Add {memberCount} members (including yourself as creator) to proceed.
+                  No participants added yet. You&apos;re added automatically as creator — invite others now or after the circle is created.
                 </td>
               </tr>
             )}

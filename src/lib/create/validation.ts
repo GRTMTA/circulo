@@ -12,6 +12,13 @@ export interface ValidationResult {
 }
 
 /**
+ * Minimum members (with validated collateral) required before a circle can
+ * start its first cycle. The roster can be created with fewer; the gate is
+ * enforced at activation, not at creation.
+ */
+export const MIN_CYCLE_MEMBERS = 3;
+
+/**
  * Validates a Stellar public key (Ed25519).
  * A valid Stellar public key starts with 'G' and is 56 characters of base32.
  */
@@ -54,8 +61,13 @@ export function validateRoster(
 ): ValidationResult {
   const errors: Record<string, string> = {};
 
-  if (members.length < memberCount) {
-    errors.roster = `Add ${memberCount - members.length} more member${memberCount - members.length > 1 ? "s" : ""} to fill the roster.`;
+  // The roster does not need to be full to create a circle. It only needs at
+  // least the creator, and it must not exceed the configured capacity. The
+  // minimum-to-start-a-cycle rule is enforced separately at activation.
+  if (members.length < 1) {
+    errors.roster = "Add at least yourself to the roster.";
+  } else if (members.length > memberCount) {
+    errors.roster = `This circle is limited to ${memberCount} members. Remove ${members.length - memberCount} to continue.`;
   }
 
   const invalidNames = members.filter((member) => !member.displayName.trim());
