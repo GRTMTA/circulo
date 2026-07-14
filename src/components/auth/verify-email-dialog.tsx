@@ -59,19 +59,20 @@ export function VerifyEmailDialog({
 
         <AuthStatus state={resendState} />
 
-        <DialogFooter className="mt-4 sm:justify-center">
+        <DialogFooter className="mt-4 flex flex-col gap-3 sm:flex-col sm:items-center">
           <form action={resendFormAction}>
             <input type="hidden" name="email" value={email} />
-            <Button type="submit" variant="outline" disabled={resendPending}>
+            <Button type="submit" variant="outline" disabled={resendPending} className="w-full">
               {resendPending ? "Resending..." : "Resend verification email"}
             </Button>
           </form>
           <Button
             type="button"
             variant="ghost"
+            className="w-full"
             onClick={() => onOpenChange?.(false)}
           >
-            I&apos;ll verify later
+            Close
           </Button>
         </DialogFooter>
       </DialogContent>
