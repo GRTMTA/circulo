@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/nextjs";
 
-import { DashboardViews } from "@/components/dashboard/dashboard-views";
 import {
-  createCreatorDashboardMock,
-  createMemberDashboardMock,
-} from "@/lib/mocks";
+  createCreatorDashboardFixture,
+  createMemberDashboardFixture,
+} from "../../../.storybook/fixtures";
+import { DashboardViews } from "@/components/dashboard/dashboard-views";
 
 const meta = {
   title: "Dashboard/Dashboard Views",
@@ -20,15 +20,15 @@ type Story = StoryObj<typeof meta>;
 
 export const ActiveCreatorCircle: Story = {
   args: {
-    data: createCreatorDashboardMock(),
+    data: createCreatorDashboardFixture(),
   },
 };
 
 export const DraftCreatorCircle: Story = {
   args: {
-    data: createCreatorDashboardMock({
-      circle: createCreatorDashboardMock().circle && {
-        ...createCreatorDashboardMock().circle,
+    data: createCreatorDashboardFixture({
+      circle: {
+        ...createCreatorDashboardFixture().circle,
         status: "draft",
         settingsLocked: false,
         payoutOrderLocked: false,
@@ -40,9 +40,9 @@ export const DraftCreatorCircle: Story = {
 
 export const CancelledCreatorCircle: Story = {
   args: {
-    data: createCreatorDashboardMock({
+    data: createCreatorDashboardFixture({
       circle: {
-        ...createCreatorDashboardMock().circle,
+        ...createCreatorDashboardFixture().circle,
         status: "cancelled",
       },
     }),
@@ -51,6 +51,6 @@ export const CancelledCreatorCircle: Story = {
 
 export const ActiveMemberCircle: Story = {
   args: {
-    data: createMemberDashboardMock(),
+    data: createMemberDashboardFixture(),
   },
 };

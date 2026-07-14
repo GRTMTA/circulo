@@ -1,8 +1,10 @@
+import { StrKey } from "@stellar/stellar-sdk";
+
 import type {
   CreateBasicsState,
   CreateCollateralState,
   CreateRosterMember,
-} from "@/lib/mocks";
+} from "@/lib/create/types";
 
 export interface ValidationResult {
   valid: boolean;
@@ -14,11 +16,7 @@ export interface ValidationResult {
  * A valid Stellar public key starts with 'G' and is 56 characters of base32.
  */
 export function isValidStellarPublicKey(address: string): boolean {
-  if (!address || address.length !== 56) return false;
-  const upperAddress = address.toUpperCase();
-  if (!upperAddress.startsWith("G")) return false;
-  // Base32 alphabet used by Stellar (RFC 4648)
-  return /^[A-Z2-7]{56}$/.test(upperAddress);
+  return StrKey.isValidEd25519PublicKey(address.trim().toUpperCase());
 }
 
 export function validateBasics(values: CreateBasicsState): ValidationResult {
@@ -30,11 +28,18 @@ export function validateBasics(values: CreateBasicsState): ValidationResult {
     errors.name = "Name must be at least 3 characters.";
   }
 
-  if (!values.contributionAmount || values.contributionAmount <= 0) {
+  if (
+    !Number.isFinite(values.contributionAmount) ||
+    values.contributionAmount <= 0
+  ) {
     errors.contributionAmount = "Contribution must be greater than 0.";
   }
 
-  if (values.memberCount < 2) {
+  if (!Number.isInteger(values.intervalSeconds) || values.intervalSeconds <= 0) {
+    errors.intervalSeconds = "Contribution interval must be positive.";
+  }
+
+  if (!Number.isInteger(values.memberCount) || values.memberCount < 2) {
     errors.memberCount = "A circle needs at least 2 members.";
   } else if (values.memberCount > 20) {
     errors.memberCount = "Maximum 20 members allowed.";
@@ -53,6 +58,11 @@ export function validateRoster(
     errors.roster = `Add ${memberCount - members.length} more member${memberCount - members.length > 1 ? "s" : ""} to fill the roster.`;
   }
 
+  const invalidNames = members.filter((member) => !member.displayName.trim());
+  if (invalidNames.length > 0) {
+    errors.displayName = "Every member needs a display name.";
+  }
+
   const invalidAddresses = members.filter(
     (m) => !isValidStellarPublicKey(m.walletAddress)
   );
@@ -60,9 +70,14 @@ export function validateRoster(
     errors.walletAddress = `${invalidAddresses.length} address${invalidAddresses.length > 1 ? "es are" : " is"} not a valid Stellar public key.`;
   }
 
-  const duplicates = members.filter(
-    (m, i) => members.findIndex((other) => other.walletAddress === m.walletAddress) !== i
-  );
+  const duplicates = members.filter((member, index) => {
+    const address = member.walletAddress.trim().toUpperCase();
+    return (
+      members.findIndex(
+        (other) => other.walletAddress.trim().toUpperCase() === address
+      ) !== index
+    );
+  });
   if (duplicates.length > 0) {
     errors.duplicates = "Each member must have a unique wallet address.";
   }
@@ -85,7 +100,13 @@ export function validateRosterEntry(
     errors.walletAddress = "Wallet address is required.";
   } else if (!isValidStellarPublicKey(walletAddress)) {
     errors.walletAddress = "Not a valid Stellar public key. Must start with G and be 56 characters.";
-  } else if (existingMembers.some((m) => m.walletAddress === walletAddress)) {
+  } else if (
+    existingMembers.some(
+      (member) =>
+        member.walletAddress.trim().toUpperCase() ===
+        walletAddress.trim().toUpperCase()
+    )
+  ) {
     errors.walletAddress = "This address is already in the roster.";
   }
 
@@ -95,11 +116,19 @@ export function validateRosterEntry(
 export function validateCollateral(values: CreateCollateralState): ValidationResult {
   const errors: Record<string, string> = {};
 
-  if (values.gracePeriodHours < 0) {
+  if (!Number.isFinite(values.collateralAmount) || values.collateralAmount <= 0) {
+    errors.collateralAmount = "Collateral must be greater than zero.";
+  }
+
+  if (!Number.isFinite(values.gracePeriodHours) || values.gracePeriodHours < 0) {
     errors.gracePeriodHours = "Grace period cannot be negative.";
   }
 
-  if (values.slashPercentage < 0 || values.slashPercentage > 100) {
+  if (
+    !Number.isFinite(values.slashPercentage) ||
+    values.slashPercentage < 0 ||
+    values.slashPercentage > 100
+  ) {
     errors.slashPercentage = "Slash percentage must be between 0 and 100.";
   }
 

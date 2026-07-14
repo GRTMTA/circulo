@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { MemberAgreementScreen } from "@/components/agreement/member-agreement-screen";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { getCircleDTO } from "@/lib/dashboard/queries";
-import { mockAgreementRules } from "@/lib/mocks";
+import { AGREEMENT_RULES } from "@/lib/policies";
 
 export default async function AgreementPage({
   params,
@@ -13,7 +13,7 @@ export default async function AgreementPage({
   const { circleId } = await params;
   const data = await getCircleDTO(circleId);
 
-  if (!data) notFound();
+  if (!data || data.role !== "member") notFound();
 
   return (
     <DashboardShell
@@ -25,7 +25,15 @@ export default async function AgreementPage({
         { label: "Agreement" },
       ]}
     >
-      <MemberAgreementScreen circleId={circleId} circleName={data.circle.name} rules={mockAgreementRules} />
+      <MemberAgreementScreen
+        circleId={circleId}
+        circleName={data.circle.name}
+        rules={[...AGREEMENT_RULES]}
+        collateralAmount={data.circle.collateralAmount}
+        contributionAsset={data.circle.contributionAsset}
+        memberWalletAddress={data.currentMember.walletAddress}
+        accepted={data.currentMember.agreementStatus === "accepted"}
+      />
     </DashboardShell>
   );
 }

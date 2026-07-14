@@ -24,7 +24,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Progress } from "@/components/ui/progress";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import type { DashboardContribution, DashboardMember, DashboardPayout, DashboardRound } from "@/lib/dashboard/types";
-import { createCalendarEvents, createDayEvents, type CalendarEvent, type CalendarEventType } from "@/lib/mocks";
+import { createCalendarEvents, createDayEvents, type CalendarEvent, type CalendarEventType } from "@/lib/calendar";
 import { cn } from "@/lib/utils";
 
 type CalendarView = "month" | "week" | "agenda";
@@ -441,6 +441,7 @@ interface CycleCalendarViewProps {
   contributions: DashboardContribution[];
   members: DashboardMember[];
   currentMemberId?: string;
+  asset?: string;
   defaultView?: CalendarView;
   onPayNow?: (memberId: string) => void;
   onSendReminder?: (memberId: string) => void;
@@ -452,6 +453,7 @@ export function CycleCalendarView({
   contributions,
   members,
   currentMemberId,
+  asset = "USDC",
   defaultView = "month",
 }: CycleCalendarViewProps) {
   const now = new Date();
@@ -465,8 +467,8 @@ export function CycleCalendarView({
   const [showFilters, setShowFilters] = useState(false);
 
   const allEvents = useMemo(
-    () => createCalendarEvents(rounds, payouts, contributions, members, currentMemberId),
-    [rounds, payouts, contributions, members, currentMemberId],
+    () => createCalendarEvents(rounds, payouts, contributions, members, currentMemberId, asset),
+    [rounds, payouts, contributions, members, currentMemberId, asset],
   );
 
   const filteredEvents = useMemo(() => {
@@ -593,7 +595,7 @@ export function CycleCalendarView({
             totalMembers={members.length}
             collectedAmount={activeRound.collectedAmount}
             expectedAmount={activeRound.expectedAmount}
-            asset="USDC"
+            asset={asset}
           />
         ) : null}
       </CardContent>

@@ -15,6 +15,7 @@ import {
   Clock,
   CreditCard,
   Flag,
+  LockKeyhole,
   type LucideIcon,
   RefreshCcw,
   Settings,
@@ -113,7 +114,7 @@ const EVENT_META: Record<string, EventMeta> = {
     category: "member",
   },
   collateral_posted: {
-    icon: ShieldCheck,
+    icon: LockKeyhole,
     label: "Collateral posted",
     description: (m) => m ? `${m} posted collateral` : "Collateral was posted",
     color: "text-[var(--color-success-default)]",
@@ -229,7 +230,7 @@ const EVENT_META: Record<string, EventMeta> = {
 const DEFAULT_META: EventMeta = {
   icon: CircleDot,
   label: "Event",
-  description: () => "Activity recorded",
+  description: (_, __, ___) => "Activity recorded",
   color: "text-muted-foreground",
   category: "circle",
 };

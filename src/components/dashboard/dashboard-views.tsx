@@ -87,8 +87,8 @@ import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { StellarWalletsKit } from "@/config/stellar";
-import { triggerContributeOnChain } from "@/services/contractService";
-import { rpc, TransactionBuilder } from "@stellar/stellar-sdk";
+import { triggerContributeOnChain, submitSignedTransaction } from "@/services/contractService";
+import { env, getTokenContractId } from "@/lib/env";
 import type {
   CreatorDashboardDTO,
   DashboardAuditEvent,
@@ -728,6 +728,7 @@ function CreatorDashboard({
             payouts={data.payouts}
             contributions={data.contributions}
             members={data.members}
+            asset={data.circle.contributionAsset}
           />
         </SectionCard>
       </TabsContent>
@@ -828,38 +829,31 @@ function MemberDashboard({
       if (!userAddress) {
         throw new Error("Stellar wallet address not found. Please connect your wallet first.");
       }
+      if (userAddress.toUpperCase() !== data.currentMember.walletAddress.toUpperCase()) {
+        throw new Error("Connect the Stellar wallet that received this invitation.");
+      }
 
-      // Placeholder addresses for contract & asset ID
-      const contractAddress = process.env.NEXT_PUBLIC_CIRCULO_CONTRACT_ID || "CCW67CX2SCNV6HGKHWBW4ZPQUR75V343JAG57AXJ223QD2D6Z4Z4Z4Z4";
-      const tokenIdAddress = data.circle.contributionAsset === "XLM" 
-        ? "CAS3J7GYCCK7G37WO5FCEXSQ4H37QCWWHN7UVE4V545Z5TSS35FE32A7" 
-        : "CCW67CX2SCNV6HGKHWBW4ZPQUR75V343JAG57AXJ223QD2D6Z4Z4Z4Z4";
-      
-      const collateralAmount = data.circle.collateralAmount;
-
-      // 2. Build contribute transaction on-chain via service
-      const { txXdr } = await triggerContributeOnChain(
-        userAddress,
-        contractAddress,
-        tokenIdAddress,
-        collateralAmount * 10000000 // Convert to Stroops (7 decimal places)
+      if (!env.contractId) {
+        throw new Error("NEXT_PUBLIC_CIRCULO_CONTRACT_ID is not configured.");
+      }
+      const tokenContractId = getTokenContractId(data.circle.contributionAsset);
+      const collateralAmount = BigInt(
+        Math.round(data.circle.collateralAmount * 10_000_000)
       );
 
-      // 3. Prompt Freighter/connected wallet to sign transaction
+      const { txXdr } = await triggerContributeOnChain(
+        userAddress,
+        env.contractId,
+        tokenContractId,
+        collateralAmount.toString()
+      );
+
       const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
-        networkPassphrase: process.env.NEXT_PUBLIC_SOROBAN_NETWORK_PASSPHRASE || "Test SDF Network ; September 2015",
+        networkPassphrase: env.sorobanNetworkPassphrase,
         address: userAddress,
       });
+      const { hash: txHash } = await submitSignedTransaction(signedTxXdr);
 
-      // 4. Submit to Soroban RPC
-      const rpcServer = new rpc.Server(process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org");
-      const transaction = TransactionBuilder.fromXDR(signedTxXdr, process.env.NEXT_PUBLIC_SOROBAN_NETWORK_PASSPHRASE || "Test SDF Network ; September 2015");
-      
-      // Submit the transaction
-      const submitRes = await rpcServer.sendTransaction(transaction);
-      const txHash = submitRes.hash;
-
-      // 5. Call server action to accept invite and register collateral post
       const res = await acceptAgreementAction(circleId, notificationId, txHash);
       if (res.success) {
         toast.success("Invitation accepted and collateral posted successfully!");
@@ -871,28 +865,7 @@ function MemberDashboard({
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
       console.error("Invite acceptance error:", error);
-      // Friendly toast with option to simulate
       toast.error(error.message || "Failed to accept invite.");
-      
-      // Show simulated acceptance action for demo/hackathon ease if ledger environment fails
-      toast("Simulated Acceptance", {
-        description: "Would you like to bypass the live ledger wallet submission for this demo?",
-        action: {
-          label: "Simulate Accept",
-          onClick: async () => {
-            setIsAcceptingInvite(true);
-            const mockTxHash = "mock_tx_" + Math.random().toString(36).substring(7);
-            const res = await acceptAgreementAction(circleId, notificationId, mockTxHash);
-            if (res.success) {
-              toast.success("Invitation accepted (Simulated)!");
-              setActiveInviteNotification(null);
-            } else {
-              toast.error(res.error || "Failed to simulate accept.");
-            }
-            setIsAcceptingInvite(false);
-          }
-        }
-      });
       setInviteActionError(error.message || "Failed to process on-chain transaction.");
     } finally {
       setIsAcceptingInvite(false);
@@ -982,7 +955,6 @@ function MemberDashboard({
         </SectionCard>
       </TabsContent>
 
-      <TabsContent value="transparency">
       <TabsContent value="transparency" className="grid gap-6">
         <SectionCard title="Group Transparency" description="Member-safe pool health without creator-only settings.">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
