@@ -54,6 +54,7 @@ import type { FilterOption, FilterSpec } from "@/components/ui/table-filter-bar"
 import { TableFilterBar } from "@/components/ui/table-filter-bar";
 import { CalendarExportButton } from "@/components/calendar/calendar-export-button";
 import { CycleCalendarView } from "@/components/calendar/cycle-calendar-view";
+import { AuditLog } from "@/components/dashboard/audit-log";
 import {
   DefaultProtectionCreatorView,
   DefaultProtectionMemberView,
@@ -608,41 +609,6 @@ export function PayoutTimeline({
   );
 }
 
-function AuditList({
-  events,
-  members,
-}: {
-  events: DashboardAuditEvent[];
-  members: DashboardMember[];
-}) {
-  if (events.length === 0) {
-    return <p className="text-sm text-muted-foreground">No audit events yet.</p>;
-  }
-
-  return (
-    <div className="grid gap-3">
-      {events.map((event) => (
-          <div key={event.id} className="rounded-xl border border-border bg-white p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                {event.memberId ? (
-                  <MemberAvatar member={getMemberObject(members, event.memberId)} className="size-7" />
-                ) : null}
-                <p className="font-semibold">{titleCase(event.eventType)}</p>
-              </div>
-              <span className="text-sm text-muted-foreground">{formatDate(event.createdAt)}</span>
-            </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {event.memberId ? getMemberName(members, event.memberId) : "Circle event"}
-            {event.roundNumber ? `, round ${event.roundNumber}` : ""}
-            {event.txHash ? `, ${shortenWallet(event.txHash)}` : ""}
-          </p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function CreatorDashboard({
   data,
   isTabContentOnly = false,
@@ -763,8 +729,8 @@ function CreatorDashboard({
       </TabsContent>
 
       <TabsContent value="audit">
-        <SectionCard title="Audit Log" description="Readable activity history for circle actions and on-chain events.">
-          <AuditList events={data.auditEvents} members={data.members} />
+        <SectionCard title="Audit Log" description="Complete activity history — who joined, paid, received payouts, and when.">
+          <AuditLog events={data.auditEvents} members={data.members} />
         </SectionCard>
       </TabsContent>
 
@@ -976,7 +942,7 @@ function MemberDashboard({
         </SectionCard>
       </TabsContent>
 
-      <TabsContent value="transparency">
+      <TabsContent value="transparency" className="grid gap-6">
         <SectionCard title="Group Transparency" description="Member-safe pool health without creator-only settings.">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Paid" value={String(paidMembers)} icon={ShieldCheck} />
@@ -984,6 +950,9 @@ function MemberDashboard({
             <StatCard label="Late" value={String(lateMembers)} icon={ShieldAlert} />
             <StatCard label="Collected" value={formatAmount(currentRound?.collectedAmount ?? 0, data.circle.contributionAsset)} icon={PiggyBank} />
           </div>
+        </SectionCard>
+        <SectionCard title="Activity History" description="Record of who joined, paid, received payouts, and when.">
+          <AuditLog events={data.auditEvents} members={data.members} />
         </SectionCard>
       </TabsContent>
 
