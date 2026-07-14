@@ -122,6 +122,56 @@ export async function triggerActivateOnChain(
   return { txXdr: transaction.toXDR() };
 }
 
+export async function triggerCancelCircleOnChain(
+  creatorAddress: string,
+  contractAddress: string,
+  circleId: string
+): Promise<{ txXdr: string }> {
+  assertAccountId(creatorAddress, "Creator address");
+  assertContractId(contractAddress, "Circulo contract ID");
+
+  const contract = new Contract(contractAddress);
+  const operation = contract.call(
+    "cancel_circle",
+    circleIdToScVal(circleId),
+    Address.fromString(creatorAddress).toScVal()
+  );
+
+  const transaction = await buildPreparedTransaction(
+    creatorAddress,
+    contractAddress,
+    operation
+  );
+
+  return { txXdr: transaction.toXDR() };
+}
+
+export async function triggerClaimRefundOnChain(
+  userAddress: string,
+  contractAddress: string,
+  circleId: string,
+  tokenContractId: string
+): Promise<{ txXdr: string }> {
+  assertAccountId(userAddress, "Member address");
+  assertContractId(tokenContractId, "Token contract ID");
+
+  const contract = new Contract(contractAddress);
+  const operation = contract.call(
+    "claim_refund",
+    circleIdToScVal(circleId),
+    Address.fromString(userAddress).toScVal(),
+    Address.fromString(tokenContractId).toScVal()
+  );
+
+  const transaction = await buildPreparedTransaction(
+    userAddress,
+    contractAddress,
+    operation
+  );
+
+  return { txXdr: transaction.toXDR() };
+}
+
 export async function triggerContributeOnChain(
   userAddress: string,
   contractAddress: string,

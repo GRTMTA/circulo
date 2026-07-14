@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   CalendarDays,
   ClipboardCheck,
@@ -17,6 +18,8 @@ import {
   ArrowUp,
   ArrowDown,
   AlertTriangle,
+  ArrowDownCircle,
+  Trash2,
 } from "lucide-react";
 
 // AppShell and DashboardShell imports removed since layout is managed by Next.js layouts.
@@ -68,6 +71,8 @@ import {
   cancelCircleAction,
   acceptAgreementAction,
   activateCircleAction,
+  logCollateralRefundAction,
+  deleteCircleAction,
 } from "@/app/dashboard/actions";
 import { ContributionReminderBanner } from "@/components/reminders/contribution-reminder-banner";
 import { ReminderSettingsPanel } from "@/components/reminders/reminder-settings-panel";
@@ -86,10 +91,12 @@ import { StellarWalletsKit } from "@/config/stellar";
 import {
   triggerPostCollateralOnChain,
   triggerActivateOnChain,
+  triggerCancelCircleOnChain,
+  triggerClaimRefundOnChain,
   submitSignedTransaction,
 } from "@/services/contractService";
 import { env, getTokenContractId } from "@/lib/env";
-import { calculateCollateral } from "@/lib/create/validation";
+import { calculateCollateral, MIN_CYCLE_MEMBERS } from "@/lib/create/validation";
 import type {
   CreatorDashboardDTO,
   DashboardAuditEvent,
@@ -1025,6 +1032,16 @@ function CreatorDashboard({
     <>
       <TabsContent value="overview" className="grid gap-6">
         <CircleStatusBanner status={data.circle.status} />
+        {data.circle.status === "cancelled" ? (
+          <Alert className="border-rose-500/20 bg-rose-50/50 text-rose-700 animate-enter-soft">
+            <AlertTriangle className="size-4 text-rose-500" />
+            <AlertTitle className="font-bold text-rose-800">Circle Cancelled</AlertTitle>
+            <AlertDescription className="flex flex-col gap-3 mt-1.5 sm:flex-row sm:items-center sm:justify-between">
+              <span>This circle has been cancelled. Members can reclaim their collateral. You can permanently delete this circle to remove it from all dashboards.</span>
+              <DeleteCircleButton circleId={data.circle.id} />
+            </AlertDescription>
+          </Alert>
+        ) : null}
         <CircleStatusCard
           status={data.circle.status}
           currentRound={data.circle.currentRound}
@@ -1307,8 +1324,35 @@ function CreatorDashboard({
             if (!res.success) throw new Error(res.error);
           }}
           onCancel={async (reason) => {
-            const res = await cancelCircleAction(data.circle.id, reason);
+            const addressRes = await StellarWalletsKit.getAddress();
+            const creatorAddress = addressRes?.address;
+            if (!creatorAddress) {
+              throw new Error("Connect a Stellar testnet wallet first.");
+            }
+
+            if (!env.contractId) {
+              throw new Error("NEXT_PUBLIC_CIRCULO_CONTRACT_ID is not configured.");
+            }
+
+            toast.info("Preparing on-chain contract cancellation. Please sign the transaction...");
+
+            const { txXdr } = await triggerCancelCircleOnChain(
+              creatorAddress,
+              env.contractId,
+              data.circle.id
+            );
+
+            const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
+              networkPassphrase: env.sorobanNetworkPassphrase,
+              address: creatorAddress,
+            });
+
+            toast.info("Submitting cancellation transaction to Stellar Testnet...");
+            const { hash: txHash } = await submitSignedTransaction(signedTxXdr);
+
+            const res = await cancelCircleAction(data.circle.id, reason, txHash);
             if (!res.success) throw new Error(res.error);
+            toast.success("Circle successfully cancelled on-chain!");
           }}
         />
         <EmergencyRulesDisplay />
@@ -1451,6 +1495,25 @@ function MemberDashboard({
   const tabContent = (
     <>
       <TabsContent value="overview" className="grid gap-6">
+        {data.circle.status === "cancelled" ? (
+          <Alert className="border-rose-500/20 bg-rose-50/50 text-rose-700">
+            <AlertTriangle className="size-4 text-rose-500" />
+            <AlertTitle className="font-bold text-rose-800">Circle Cancelled by Creator</AlertTitle>
+            <AlertDescription className="flex flex-col gap-3 mt-1.5 sm:flex-row sm:items-center sm:justify-between">
+              <span>This savings circle has been cancelled. If you previously deposited collateral, you can withdraw your funds back to your wallet.</span>
+              {data.currentMember.collateralStatus === "posted" ? (
+                <RefundButton
+                  circleId={data.circle.id}
+                  memberAddress={data.currentMember.walletAddress}
+                  asset={data.circle.contributionAsset}
+                />
+              ) : (
+                <span className="text-xs font-semibold text-rose-500 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-100">No collateral remaining</span>
+              )}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
         {data.currentMember.agreementStatus === "pending" ? (
           <Alert className="border-amber-500/20 bg-amber-500/5 text-amber-600">
             <AlertTriangle className="size-4 text-amber-500" />
@@ -1894,4 +1957,112 @@ export function DashboardViews({
     return <MemberDashboard data={data} isTabContentOnly={isTabContentOnly} />;
   }
   return <DashboardEmptyState configured={data.configured} />;
+}
+
+function RefundButton({
+  circleId,
+  memberAddress,
+  asset,
+}: {
+  circleId: string;
+  memberAddress: string;
+  asset: string;
+}) {
+  const [loading, setLoading] = useState(false);
+
+  async function handleRefund() {
+    setLoading(true);
+    try {
+      const addressRes = await StellarWalletsKit.getAddress();
+      const currentAddress = addressRes?.address;
+      if (!currentAddress || currentAddress.toUpperCase() !== memberAddress.toUpperCase()) {
+        throw new Error(`Connect the wallet address: ${memberAddress}`);
+      }
+
+      if (!env.contractId) {
+        throw new Error("NEXT_PUBLIC_CIRCULO_CONTRACT_ID is not configured.");
+      }
+
+      toast.info("Preparing on-chain collateral refund transaction. Please sign...");
+
+      const tokenContractId = getTokenContractId(asset);
+      const { txXdr } = await triggerClaimRefundOnChain(
+        memberAddress,
+        env.contractId,
+        circleId,
+        tokenContractId
+      );
+
+      const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
+        networkPassphrase: env.sorobanNetworkPassphrase,
+        address: memberAddress,
+      });
+
+      toast.info("Submitting refund transaction to Stellar Testnet...");
+      const { hash } = await submitSignedTransaction(signedTxXdr);
+
+      const res = await logCollateralRefundAction(circleId, memberAddress, hash);
+      if (res.success) {
+        toast.success("Collateral successfully refunded to your wallet!");
+      } else {
+        throw new Error(res.error || "Failed to complete refund logging.");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Refund failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Button
+      size="sm"
+      disabled={loading}
+      onClick={handleRefund}
+      className="bg-rose-600 hover:bg-rose-700 text-white font-semibold shadow-sm flex items-center gap-1.5"
+    >
+      {loading ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowDownCircle className="size-3.5" />}
+      Claim Refund
+    </Button>
+  );
+}
+
+function DeleteCircleButton({ circleId }: { circleId: string }) {
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+
+  async function handleDelete() {
+    if (!confirm("Are you absolutely sure you want to permanently delete this circle? This action cannot be undone.")) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await deleteCircleAction(circleId);
+      if (res.success) {
+        toast.success("Circle permanently deleted.");
+        router.push("/dashboard");
+        router.refresh();
+      } else {
+        throw new Error(res.error || "Failed to delete circle.");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Button
+      size="sm"
+      variant="destructive"
+      disabled={loading}
+      onClick={handleDelete}
+      className="font-semibold shadow-sm flex items-center gap-1.5 hover:bg-rose-700"
+    >
+      {loading ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+      Delete Circle
+    </Button>
+  );
 }

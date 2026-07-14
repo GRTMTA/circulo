@@ -14,7 +14,6 @@ export function ConnectWalletButton({ compact = false }: ConnectWalletButtonProp
   const [address, setAddress] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showWarning, setShowWarning] = useState(false);
-  const [usdcBalance, setUsdcBalance] = useState<number>(0);
   const [xlmBalance, setXlmBalance] = useState<number>(0);
   const [balanceLoading, setBalanceLoading] = useState(false);
 
@@ -41,7 +40,6 @@ export function ConnectWalletButton({ compact = false }: ConnectWalletButtonProp
     const unsubDisconnect = StellarWalletsKit.on(KitEventType.DISCONNECT, () => {
       setAddress(null);
       setXlmBalance(0);
-      setUsdcBalance(0);
       setShowWarning(false);
     });
 
@@ -54,9 +52,10 @@ export function ConnectWalletButton({ compact = false }: ConnectWalletButtonProp
   const fetchBalances = async (addr: string) => {
     setBalanceLoading(true);
     try {
-      const res = await fetch(`${HORIZON_RPC_URL}/accounts/${addr}`);
+      const res = await fetch(`${HORIZON_RPC_URL}/accounts/${addr}`, {
+        cache: "no-store",
+      });
       if (res.status === 404) {
-        setUsdcBalance(0);
         setXlmBalance(0);
         return;
       }
@@ -65,9 +64,6 @@ export function ConnectWalletButton({ compact = false }: ConnectWalletButtonProp
       
       const native = data.balances.find((b: { asset_type: string }) => b.asset_type === "native");
       setXlmBalance(native ? parseFloat(native.balance) : 0);
-
-      const usdc = data.balances.find((b: { asset_code?: string }) => b.asset_code === "USDC");
-      setUsdcBalance(usdc ? parseFloat(usdc.balance) : 0);
     } catch (error) {
       console.error("Horizon balance fetch failed:", error);
     } finally {
@@ -135,13 +131,11 @@ export function ConnectWalletButton({ compact = false }: ConnectWalletButtonProp
         ) : (
           <div className="flex items-center gap-3 px-3 py-1.5 rounded-xl border border-[var(--color-border-muted)] bg-[var(--color-background-muted)]/40 backdrop-blur text-xs">
             <div className="flex items-center gap-1.5 text-muted-foreground font-semibold">
-              {balanceLoading && usdcBalance === 0 ? (
+              {balanceLoading && xlmBalance === 0 ? (
                 <Loader2 className="size-3 animate-spin text-[var(--color-primary-default)]" />
               ) : (
-                <span className="text-[var(--color-text-default)] tabular-nums">{usdcBalance.toFixed(2)} USDC</span>
+                <span className="tabular-nums text-[var(--color-text-default)]">{xlmBalance.toFixed(4)} XLM</span>
               )}
-              <span className="opacity-30">|</span>
-              <span className="tabular-nums">{xlmBalance.toFixed(1)} XLM</span>
             </div>
             
             <div className="flex items-center gap-2 border-l border-[var(--color-border-muted)] pl-3">
@@ -183,7 +177,7 @@ export function ConnectWalletButton({ compact = false }: ConnectWalletButtonProp
                 <span className="font-mono font-medium">{formatAddress(address)}</span>
               </div>
               <div className="text-[10px] text-muted-foreground font-semibold mt-1">
-                {usdcBalance.toFixed(2)} USDC &bull; {xlmBalance.toFixed(2)} XLM
+                {xlmBalance.toFixed(4)} XLM
               </div>
             </div>
             

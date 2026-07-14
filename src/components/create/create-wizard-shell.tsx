@@ -34,7 +34,7 @@ const steps = ["Basics", "Roster", "Collateral", "Payout Order", "Review"];
 const initialBasics: CreateBasicsState = {
   name: "",
   contributionAmount: 10,
-  contributionAsset: "USDC",
+  contributionAsset: "XLM",
   intervalSeconds: 86_400,
   memberCount: 2,
 };

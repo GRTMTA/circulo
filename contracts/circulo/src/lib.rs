@@ -210,6 +210,88 @@ impl CirculoContract {
         // Transfer funds directly from this contract's escrow address to the recipient
         token_client.transfer(&env.current_contract_address(), &recipient, &total_pool);
     }
+
+    /// Cancels the circle on-chain, preventing any further round contributions or payouts.
+    /// Transitions status to "cancelled" which unlocks collateral refunds for all members.
+    pub fn cancel_circle(env: Env, circle_id: u128, admin: Address) {
+        let key_creator = (symbol_short!("creator"), circle_id);
+        if !env.storage().instance().has(&key_creator) {
+            panic!("circle is not initialized");
+        }
+        let creator: Address = env.storage().instance().get(&key_creator).unwrap();
+        admin.require_auth();
+
+        if admin != creator {
+            panic!("only creator can cancel");
+        }
+
+        let status: Symbol = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("status"), circle_id))
+            .unwrap_or(symbol_short!("draft"));
+        if status == Symbol::new(&env, "cancelled") {
+            panic!("already cancelled");
+        }
+
+        env.storage()
+            .instance()
+            .set(&(symbol_short!("status"), circle_id), &Symbol::new(&env, "cancelled"));
+    }
+
+    /// Allows a member to claim their posted collateral refund back if the circle is cancelled.
+    pub fn claim_refund(env: Env, circle_id: u128, member: Address, token_id: Address) {
+        let key_creator = (symbol_short!("creator"), circle_id);
+        if !env.storage().instance().has(&key_creator) {
+            panic!("circle is not initialized");
+        }
+
+        let status: Symbol = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("status"), circle_id))
+            .unwrap_or(symbol_short!("draft"));
+        if status != Symbol::new(&env, "cancelled") {
+            panic!("circle is not cancelled");
+        }
+
+        let members: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("members"), circle_id))
+            .unwrap();
+        
+        let index = members.first_index_of(&member).unwrap_or_else(|| {
+            panic!("not a circle member");
+        });
+        let payout_round = index + 1;
+
+        let key_refunded = (Symbol::new(&env, "refunded"), circle_id, member.clone());
+        if env.storage().instance().has(&key_refunded) {
+            panic!("already refunded");
+        }
+
+        let contribution_amount: i128 = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("contrib"), circle_id))
+            .unwrap();
+
+        let num_members = members.len();
+        // Mathematical Model: collateral_to_refund = (N - k) * A
+        let collateral_to_refund = ((num_members - payout_round) as i128) * contribution_amount;
+
+        if collateral_to_refund > 0 {
+            member.require_auth();
+
+            // Checks-Effects-Interactions: mark as refunded before transferring
+            env.storage().instance().set(&key_refunded, &true);
+
+            // Return the collateral to the member's wallet address
+            let token_client = token::Client::new(&env, &token_id);
+            token_client.transfer(&env.current_contract_address(), &member, &collateral_to_refund);
+        }
+    }
 }
 
 #[cfg(test)]
