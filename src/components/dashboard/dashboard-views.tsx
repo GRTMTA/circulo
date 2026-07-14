@@ -56,6 +56,10 @@ import { CalendarExportButton } from "@/components/calendar/calendar-export-butt
 import { CycleCalendarView } from "@/components/calendar/cycle-calendar-view";
 import { AuditLog } from "@/components/dashboard/audit-log";
 import {
+  CircleStatusBanner,
+  CircleStatusCard,
+} from "@/components/dashboard/circle-status-indicator";
+import {
   DefaultProtectionCreatorView,
   DefaultProtectionMemberView,
 } from "@/components/dashboard/default-protection-panel";
@@ -635,8 +639,13 @@ function CreatorDashboard({
     <>
 
       <TabsContent value="overview" className="grid gap-6">
+        <CircleStatusBanner status={data.circle.status} />
+        <CircleStatusCard
+          status={data.circle.status}
+          currentRound={data.circle.currentRound}
+          totalRounds={data.circle.totalRounds}
+        />
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <StatCard label="Pool Status" value={titleCase(data.circle.status)} icon={ShieldCheck} />
           <StatCard label="Collateral Posted" value={`${postedCollateral} / ${data.members.length}`} icon={LockKeyhole} />
           <StatCard label="Current Round" value={`Round ${data.circle.currentRound}`} detail={`of ${data.circle.totalRounds}`} icon={CalendarDays} />
           <StatCard label="Collected" value={formatAmount(currentRound?.collectedAmount ?? 0, data.circle.contributionAsset)} detail={`Expected ${formatAmount(currentRound?.expectedAmount ?? 0, data.circle.contributionAsset)}`} icon={PiggyBank} />
@@ -899,8 +908,8 @@ function MemberDashboard({
           contributionAmount={data.circle.contributionAmount}
           contributionAsset={data.circle.contributionAsset}
         />
+        <CircleStatusBanner status={data.circle.status} />
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <StatCard label="Pool Status" value={titleCase(data.circle.status)} icon={ShieldCheck} />
           <StatCard label="Collateral Posted" value={`${postedCollateral} / ${data.members.length}`} icon={LockKeyhole} />
           <StatCard label="Current Round" value={`Round ${data.circle.currentRound}`} detail={`of ${data.circle.totalRounds}`} icon={CalendarDays} />
           <StatCard label="Collected" value={formatAmount(currentRound?.collectedAmount ?? 0, data.circle.contributionAmount > 0 ? data.circle.contributionAsset : "")} detail={`Expected ${formatAmount(currentRound?.expectedAmount ?? 0, data.circle.contributionAmount > 0 ? data.circle.contributionAsset : "")}`} icon={PiggyBank} />
@@ -910,13 +919,17 @@ function MemberDashboard({
       </TabsContent>
 
       <TabsContent value="status" className="grid gap-6">
+        <CircleStatusCard
+          status={data.circle.status}
+          currentRound={data.circle.currentRound}
+          totalRounds={data.circle.totalRounds}
+        />
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <StatCard label="Your Due" value={formatAmount(myContribution?.amountDue ?? data.circle.contributionAmount, data.circle.contributionAsset)} icon={PiggyBank} />
           <StatCard label="Due Date" value={formatDate(currentRound?.dueAt ?? null)} icon={CalendarDays} />
           <StatCard label="Your Payout" value={`Round ${data.currentMember.payoutRound}`} icon={WalletCards} />
           <StatCard label="Collateral" value={titleCase(data.currentMember.collateralStatus)} icon={LockKeyhole} />
           <StatCard label="Status" value={titleCase(data.currentMember.restrictionStatus === "clear" ? data.currentMember.paymentStatus : data.currentMember.restrictionStatus)} icon={ShieldCheck} />
-          <StatCard label="Pool Status" value={titleCase(data.circle.status)} icon={UsersRound} />
         </div>
       </TabsContent>
 

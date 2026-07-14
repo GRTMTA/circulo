@@ -1,17 +1,5 @@
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-
-export function CircleStatusBanner({ status }: { status: "paused" | "cancelled" | "disputed" }) {
-  const copy = {
-    paused: "This circle is paused. Contributions and payouts are halted.",
-    cancelled: "This circle has been cancelled.",
-    disputed: "This circle has a disputed status.",
-  };
-
-  return (
-    <Alert variant={status === "cancelled" ? "destructive" : "default"}>
-      <AlertTitle>{status}</AlertTitle>
-      <AlertDescription>{copy[status]}</AlertDescription>
-    </Alert>
-  );
-}
-
+/**
+ * @deprecated Use CircleStatusBanner from "@/components/dashboard/circle-status-indicator" instead.
+ * This file is kept for backwards compatibility.
+ */
+export { CircleStatusBanner } from "@/components/dashboard/circle-status-indicator";
