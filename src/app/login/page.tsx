@@ -14,8 +14,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
   return (
     <AuthShell
-      title="Login"
-      description="Use your email and password to access your Circulo account."
+      eyebrow="Secure member access"
+      title="Welcome back"
+      description="Sign in to manage your circles, contributions, and payout timeline."
+      panelTitle="Your circle is ready when you are."
+      panelDescription="Sign back into the private workspace for contribution schedules, member agreements, wallet status, and payout coordination."
     >
       <LoginForm nextPath={params?.next} />
     </AuthShell>

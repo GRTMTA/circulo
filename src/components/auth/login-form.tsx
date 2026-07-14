@@ -29,27 +29,32 @@ export function LoginForm({ nextPath = "/dashboard" }: { nextPath?: string }) {
   }, [router, state]);
 
   return (
-    <form action={formAction}>
+    <form action={formAction} className="mt-2">
       <input type="hidden" name="next" value={nextPath} />
-      <FieldGroup>
+      <FieldGroup className="gap-4">
         <Field>
-          <FieldLabel htmlFor="login-email">Email</FieldLabel>
+          <FieldLabel htmlFor="login-email" className="text-sm">
+            Email address
+          </FieldLabel>
           <Input
             id="login-email"
             name="email"
             type="email"
             autoComplete="email"
             placeholder="member@example.com"
+            className="h-13 rounded-xl border-border/90 bg-[var(--color-background-default)] shadow-[0_1px_0_rgba(18,49,61,0.04)]"
             required
           />
         </Field>
 
         <Field>
           <div className="flex items-center gap-3">
-            <FieldLabel htmlFor="login-password">Password</FieldLabel>
+            <FieldLabel htmlFor="login-password" className="text-sm">
+              Password
+            </FieldLabel>
             <Link
               href="/forgot-password"
-              className="ml-auto text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              className="ml-auto text-sm font-medium text-primary underline-offset-4 transition-colors hover:text-foreground hover:underline"
             >
               Forgot password?
             </Link>
@@ -59,17 +64,22 @@ export function LoginForm({ nextPath = "/dashboard" }: { nextPath?: string }) {
             name="password"
             autoComplete="current-password"
             placeholder="Your password"
+            className="h-13 rounded-xl border-border/90 bg-[var(--color-background-default)] shadow-[0_1px_0_rgba(18,49,61,0.04)]"
             required
           />
         </Field>
 
         <AuthStatus state={state} />
 
-        <Field>
-          <Button type="submit" className="w-full" disabled={pending}>
-            {pending ? "Signing in..." : "Login"}
+        <Field className="gap-4 pt-1">
+          <Button
+            type="submit"
+            className="hero-primary-button h-13 w-full shadow-[0_16px_30px_-20px_var(--color-primary-default)] hover:brightness-105"
+            disabled={pending}
+          >
+            {pending ? "Signing in..." : "Sign in"}
           </Button>
-          <FieldDescription className="text-center">
+          <FieldDescription className="text-center text-sm leading-6">
             Don&apos;t have an account?{" "}
             <Link
               href="/register"
