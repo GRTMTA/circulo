@@ -278,12 +278,15 @@ export async function resetPasswordAction(
     return errorState(error.message);
   }
 
+  // End the recovery session so the user explicitly signs in with the new
+  // password. Password reset changes credentials; only login authenticates.
+  await supabase.auth.signOut();
   revalidatePath("/", "layout");
 
   return {
     status: "success",
-    message: "Password updated.",
-    redirectTo: "/dashboard",
+    message: "Your password has been updated. Sign in with your new password.",
+    redirectTo: "/login",
   };
 }
 

@@ -375,3 +375,33 @@
     transform: translate3d(-60px, -90px, 0) scale(1.24);
   }
 }
+
+/* Stellar Wallets Kit connect modal: enlarge the card and refine its scrollbar.
+   The kit renders a fixed `.stellar-wallets-kit` layer with an inner card
+   section whose size/scroll are set via generated utility classes. */
+.stellar-wallets-kit > section {
+  width: min(92vw, 30rem) !important;
+  max-width: min(92vw, 30rem) !important;
+  max-height: min(88vh, 40rem) !important;
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--swk-background, #2a2a2a) 45%, #ffffff)
+    transparent;
+}
+
+.stellar-wallets-kit > section::-webkit-scrollbar {
+  width: 8px;
+}
+
+.stellar-wallets-kit > section::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.stellar-wallets-kit > section::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--swk-background, #2a2a2a) 45%, #ffffff);
+  border-radius: 9999px;
+}
+
+.stellar-wallets-kit > section::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--swk-background, #2a2a2a) 30%, #ffffff);
+}
