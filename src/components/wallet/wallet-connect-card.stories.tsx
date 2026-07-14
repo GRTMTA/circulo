@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs";
 
+import { connectedWalletFixture } from "../../../.storybook/fixtures";
 import { WalletConnectCard } from "@/components/wallet/wallet-connect-card";
-import { mockWalletConnected } from "@/lib/mocks";
 
 const meta = {
   title: "Wallet/Wallet Connect Card",
@@ -11,7 +11,6 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Connected: Story = { args: mockWalletConnected };
-export const Disconnected: Story = { args: { status: "disconnected", walletAddress: null } };
-export const Connecting: Story = { args: { status: "connecting", walletAddress: null } };
+export const Connected: Story = { args: connectedWalletFixture };
+export const Disconnected: Story = { args: { walletAddress: null } };
 

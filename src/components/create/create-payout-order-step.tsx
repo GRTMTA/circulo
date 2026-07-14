@@ -5,7 +5,7 @@ import { ArrowDown, ArrowUp, Info } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import type { CreatePayoutOrderItem } from "@/lib/mocks";
+import type { CreatePayoutOrderItem } from "@/lib/create/types";
 
 export function CreatePayoutOrderStep({
   order,

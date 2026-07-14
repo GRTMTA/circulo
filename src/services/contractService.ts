@@ -1,138 +1,204 @@
 import {
+  Address,
+  BASE_FEE,
   Contract,
+  FeeBumpTransaction,
+  StrKey,
   TransactionBuilder,
-  Account,
   nativeToScVal,
   rpc,
+  scValToNative,
+  xdr,
 } from "@stellar/stellar-sdk";
 
-// Define network configurations
-const HORIZON_TESTNET_URL = "https://horizon-testnet.stellar.org";
-const SOROBAN_RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
-const NETWORK_PASSPHRASE = process.env.NEXT_PUBLIC_SOROBAN_NETWORK_PASSPHRASE || "Test SDF Network ; September 2015";
+import { assertTestnetConfig, env } from "@/lib/env";
 
-// Create Soroban RPC Server instance
-const rpcServer = new rpc.Server(SOROBAN_RPC_URL);
+const rpcServer = new rpc.Server(env.sorobanRpcUrl);
 
-/**
- * Helper function to fetch the current sequence number of an account from Horizon.
- * This is required to initialize the Account object for building the transaction.
- */
-async function fetchSourceAccount(address: string): Promise<Account> {
-  const url = `${HORIZON_TESTNET_URL}/accounts/${address}`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch account sequence for ${address} from Horizon.`);
+function assertAccountId(address: string, label: string) {
+  if (!StrKey.isValidEd25519PublicKey(address)) {
+    throw new Error(`${label} is not a valid Stellar account.`);
   }
-  const data = await response.json();
-  return new Account(address, data.sequence);
 }
 
-/**
- * Builds a Soroban transaction to execute a contribution.
- * This wraps the `contribute` function in `circulo.rs`.
- * 
- * Flow:
- * 1. Pulls user's account details from Horizon to get the latest sequence number.
- * 2. Prepares the parameters (`userAddress`, `tokenIdAddress`, `amount`) converted to ScVal.
- * 3. Builds a Transaction with the `invokeContractFunction` operation.
- * 4. Returns the XDR string, which the frontend can hand to Freighter or any other 
- *    Stellar Wallet Kit wallet module for secure signature collection.
- * 
- * Non-Custodial Architecture:
- * - This operation requires the user's signature (`require_auth()` in Soroban).
- * - The contract executes a transfer of tokens directly from the user's wallet into the
- *   contract's own unique address. The app operator never holds these funds.
- */
+function assertContractId(address: string, label: string) {
+  if (!StrKey.isValidContract(address)) {
+    throw new Error(`${label} is not a valid Stellar contract ID.`);
+  }
+}
+
+function assertPositiveAmount(amount: number | string) {
+  const value = BigInt(amount);
+  if (value <= 0n) throw new Error("Transaction amount must be greater than zero.");
+  return value;
+}
+
+async function buildPreparedTransaction(
+  sourceAddress: string,
+  contractAddress: string,
+  operation: ReturnType<Contract["call"]>
+) {
+  assertTestnetConfig();
+  assertAccountId(sourceAddress, "Source address");
+  assertContractId(contractAddress, "Circulo contract ID");
+
+  const sourceAccount = await rpcServer.getAccount(sourceAddress);
+  const transaction = new TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: env.sorobanNetworkPassphrase,
+  })
+    .addOperation(operation)
+    .setTimeout(60)
+    .build();
+
+  return rpcServer.prepareTransaction(transaction);
+}
+
 export async function triggerContributeOnChain(
   userAddress: string,
   contractAddress: string,
-  tokenIdAddress: string,
+  tokenContractId: string,
   amount: number | string
 ): Promise<{ txXdr: string }> {
-  // 1. Fetch current sequence number
-  const sourceAccount = await fetchSourceAccount(userAddress);
+  assertAccountId(userAddress, "Member address");
+  assertContractId(tokenContractId, "Token contract ID");
 
-  // 2. Initialize contract client
   const contract = new Contract(contractAddress);
-
-  // 3. Construct the Soroban invocation operation
-  const contributeOp = contract.call(
+  const operation = contract.call(
     "contribute",
     nativeToScVal(userAddress, { type: "address" }),
-    nativeToScVal(tokenIdAddress, { type: "address" }),
-    nativeToScVal(BigInt(amount), { type: "i128" })
+    nativeToScVal(tokenContractId, { type: "address" }),
+    nativeToScVal(assertPositiveAmount(amount), { type: "i128" })
+  );
+  const transaction = await buildPreparedTransaction(
+    userAddress,
+    contractAddress,
+    operation
   );
 
-  // 4. Build the transaction structure
-  const tx = new TransactionBuilder(sourceAccount, {
-    fee: "10000", // Standard base fee (simulated on-chain before submission)
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(contributeOp)
-    .setTimeout(30)
-    .build();
-
-  return {
-    txXdr: tx.toXDR(),
-  };
+  return { txXdr: transaction.toXDR() };
 }
 
-/**
- * Builds a Soroban transaction to execute a savings circle payout round.
- * This wraps the `execute_payout` function in `circulo.rs`.
- * 
- * Flow:
- * 1. Prepares the parameters (`tokenIdAddress`, `recipientAddress`, `totalPool`) converted to ScVal.
- * 2. Builds a transaction invoking the contract's execute_payout function.
- * 
- * Non-Custodial Architecture:
- * - The contract acts as the automated escrow agent.
- * - This function moves the entire accumulated token pool stored in the contract's escrow address
- *   directly to the round's designated recipient address. No intermediary or admin wallet is involved.
- */
 export async function triggerExecutePayoutOnChain(
   adminAddress: string,
   contractAddress: string,
-  tokenIdAddress: string,
+  tokenContractId: string,
   recipientAddress: string,
   totalPool: number | string
 ): Promise<{ txXdr: string }> {
-  // 1. Fetch current sequence number
-  const sourceAccount = await fetchSourceAccount(adminAddress);
+  assertAccountId(adminAddress, "Administrator address");
+  assertAccountId(recipientAddress, "Recipient address");
+  assertContractId(tokenContractId, "Token contract ID");
 
-  // 2. Initialize contract client
   const contract = new Contract(contractAddress);
-
-  // 3. Construct the Soroban invocation operation
-  const executePayoutOp = contract.call(
+  const operation = contract.call(
     "execute_payout",
-    nativeToScVal(tokenIdAddress, { type: "address" }),
+    nativeToScVal(adminAddress, { type: "address" }),
+    nativeToScVal(tokenContractId, { type: "address" }),
     nativeToScVal(recipientAddress, { type: "address" }),
-    nativeToScVal(BigInt(totalPool), { type: "i128" })
+    nativeToScVal(assertPositiveAmount(totalPool), { type: "i128" })
+  );
+  const transaction = await buildPreparedTransaction(
+    adminAddress,
+    contractAddress,
+    operation
   );
 
-  // 4. Build the transaction structure
-  const tx = new TransactionBuilder(sourceAccount, {
-    fee: "10000",
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(executePayoutOp)
-    .setTimeout(30)
-    .build();
-
-  return {
-    txXdr: tx.toXDR(),
-  };
+  return { txXdr: transaction.toXDR() };
 }
 
-/**
- * Simulates a transaction on-chain via Soroban RPC to estimate resource fees.
- * This should be run on the built transaction prior to wallet submission to ensure
- * accurate gas limits and avoid transaction execution failures.
- */
-export async function simulateTransaction(txXdr: string): Promise<rpc.Api.SimulateTransactionResponse> {
-  const transaction = TransactionBuilder.fromXDR(txXdr, NETWORK_PASSPHRASE);
-  const response = await rpcServer.simulateTransaction(transaction);
-  return response;
+export async function submitSignedTransaction(txXdr: string) {
+  assertTestnetConfig();
+  const transaction = TransactionBuilder.fromXDR(
+    txXdr,
+    env.sorobanNetworkPassphrase
+  );
+  const submission = await rpcServer.sendTransaction(transaction);
+
+  if (submission.status === "ERROR") {
+    throw new Error("Soroban RPC rejected the transaction.");
+  }
+
+  const result = await rpcServer.pollTransaction(submission.hash, {
+    attempts: 20,
+  });
+  if (result.status !== "SUCCESS") {
+    throw new Error(`Soroban transaction did not succeed (${result.status}).`);
+  }
+
+  return { hash: submission.hash };
+}
+export async function verifyContributeTransaction(
+  txHash: string,
+  memberAddress: string,
+  contractAddress: string,
+  tokenContractId: string,
+  amount: number | string
+) {
+  assertTestnetConfig();
+  assertAccountId(memberAddress, "Member address");
+  assertContractId(contractAddress, "Circulo contract ID");
+  assertContractId(tokenContractId, "Token contract ID");
+
+  if (!/^[0-9a-f]{64}$/i.test(txHash)) {
+    throw new Error("Transaction hash is invalid.");
+  }
+
+  const result = await rpcServer.getTransaction(txHash);
+  if (result.status !== "SUCCESS") {
+    throw new Error("The collateral transaction is not confirmed on testnet.");
+  }
+
+  const parsed = TransactionBuilder.fromXDR(
+    result.envelopeXdr,
+    env.sorobanNetworkPassphrase
+  );
+  const transaction =
+    parsed instanceof FeeBumpTransaction ? parsed.innerTransaction : parsed;
+  const operation = transaction.operations[0];
+
+  if (transaction.source !== memberAddress || transaction.operations.length !== 1) {
+    throw new Error("The collateral transaction source is invalid.");
+  }
+  if (operation?.type !== "invokeHostFunction") {
+    throw new Error("The transaction does not invoke the Circulo contract.");
+  }
+
+  const hostFunction = operation.func;
+  if (
+    hostFunction.switch().value !==
+    xdr.HostFunctionType.hostFunctionTypeInvokeContract().value
+  ) {
+    throw new Error("The transaction does not invoke a contract function.");
+  }
+
+  const invocation = hostFunction.invokeContract();
+  const args = invocation.args();
+  const expectedAmount = assertPositiveAmount(amount);
+  const invokedContract = Address.fromScAddress(invocation.contractAddress()).toString();
+  const invokedFunction = invocation.functionName().toString();
+  const invokedMember = Address.fromScVal(args[0]).toString();
+  const invokedToken = Address.fromScVal(args[1]).toString();
+  const invokedAmount = BigInt(scValToNative(args[2]));
+
+  if (
+    invokedContract !== contractAddress ||
+    invokedFunction !== "contribute" ||
+    invokedMember !== memberAddress ||
+    invokedToken !== tokenContractId ||
+    invokedAmount !== expectedAmount
+  ) {
+    throw new Error("The collateral transaction does not match this agreement.");
+  }
+
+  return { hash: result.txHash };
+}
+
+export async function simulateTransaction(txXdr: string) {
+  assertTestnetConfig();
+  const transaction = TransactionBuilder.fromXDR(
+    txXdr,
+    env.sorobanNetworkPassphrase
+  );
+  return rpcServer.simulateTransaction(transaction);
 }

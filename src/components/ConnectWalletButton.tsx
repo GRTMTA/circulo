@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { LogOut, Wallet, CheckCircle, AlertTriangle, Loader2 } from "lucide-react";
-import { StellarWalletsKit, KitEventType } from "@/config/stellar";
+import { HORIZON_RPC_URL, StellarWalletsKit, KitEventType } from "@/config/stellar";
 import type { KitEventStateUpdated } from "@creit.tech/stellar-wallets-kit";
 import { updateProfileWalletAction } from "@/app/dashboard/actions";
 
@@ -54,7 +54,7 @@ export function ConnectWalletButton({ compact = false }: ConnectWalletButtonProp
   const fetchBalances = async (addr: string) => {
     setBalanceLoading(true);
     try {
-      const res = await fetch(`https://horizon-testnet.stellar.org/accounts/${addr}`);
+      const res = await fetch(`${HORIZON_RPC_URL}/accounts/${addr}`);
       if (res.status === 404) {
         setUsdcBalance(0);
         setXlmBalance(0);
@@ -95,7 +95,6 @@ export function ConnectWalletButton({ compact = false }: ConnectWalletButtonProp
       if (res && res.address) {
         setAddress(res.address);
         setShowWarning(true);
-        console.log("Stellar Wallet connected successfully! Address:", res.address);
         updateProfileWalletAction(res.address).catch((err) => {
           console.error("Failed to sync wallet to profile:", err);
         });
