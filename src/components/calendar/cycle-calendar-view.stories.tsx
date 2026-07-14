@@ -1,15 +1,17 @@
 import type { Meta, StoryObj } from "@storybook/nextjs";
 
+import {
+  createContributionsFixture,
+  createMembersFixture,
+  createPayoutsFixture,
+  createRoundsFixture,
+} from "../../../.storybook/fixtures";
 import { CycleCalendarView } from "@/components/calendar/cycle-calendar-view";
-import { createMockContributions } from "@/lib/mocks/contributions";
-import { createMockMembers } from "@/lib/mocks/members";
-import { createMockPayouts } from "@/lib/mocks/payouts";
-import { createMockRounds } from "@/lib/mocks/cycles";
 
-const baseRounds = createMockRounds();
-const basePayouts = createMockPayouts();
-const baseContributions = createMockContributions();
-const baseMembers = createMockMembers();
+const baseRounds = createRoundsFixture();
+const basePayouts = createPayoutsFixture();
+const baseContributions = createContributionsFixture();
+const baseMembers = createMembersFixture();
 
 const meta = {
   title: "Calendar/Cycle Calendar View",
@@ -31,10 +33,10 @@ export const MonthDefault: Story = {};
 
 export const MonthOverdue: Story = {
   args: {
-    rounds: createMockRounds([
+    rounds: createRoundsFixture([
       { status: "late" },
     ]),
-    contributions: createMockContributions([
+    contributions: createContributionsFixture([
       {},
       { status: "late" },
       { status: "missed" },

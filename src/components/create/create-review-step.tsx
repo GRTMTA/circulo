@@ -7,7 +7,7 @@ import type {
   CreateCollateralState,
   CreatePayoutOrderItem,
   CreateRosterMember,
-} from "@/lib/mocks";
+} from "@/lib/create/types";
 
 export function CreateReviewStep({
   basics,

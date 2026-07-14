@@ -5,7 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InfoTip } from "@/components/ui/info-tip";
 import { Input } from "@/components/ui/input";
-import type { CreateCollateralState } from "@/lib/mocks";
+import type { CreateCollateralState } from "@/lib/create/types";
 
 export function CreateCollateralStep({
   values,

@@ -2,10 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 
-import { createClient } from "@supabase/supabase-js";
+import { StrKey } from "@stellar/stellar-sdk";
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { requireAuthenticatedUser } from "@/lib/auth";
+import { getTokenContractId, env } from "@/lib/env";
+import { verifyContributeTransaction } from "@/services/contractService";
+import {
+  isValidStellarPublicKey,
+  validateBasics,
+  validateCollateral,
+  validateRoster,
+} from "@/lib/create/validation";
 
 export interface CreateBasicsInput {
   name: string;
@@ -44,63 +52,45 @@ export async function createCircleAction(
 
   const supabase = await createServerSupabaseClient();
 
-  // Self-healing check for user profile presence
-  const { data: existingProfile, error: profileCheckError } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("id", authContext.user.id)
-    .maybeSingle();
-
-  if (profileCheckError) {
-    console.error("Profile check error:", profileCheckError);
+  const basicsValidation = validateBasics(basics);
+  const rosterValidation = validateRoster(roster, basics.memberCount);
+  const collateralValidation = validateCollateral(collateral);
+  if (!basicsValidation.valid || !rosterValidation.valid || !collateralValidation.valid) {
+    return { success: false, error: "Circle details are invalid." };
+  }
+  if (roster.length !== basics.memberCount || payoutOrder.length !== roster.length) {
+    return { success: false, error: "Roster and payout order must match the member count." };
+  }
+  if (!creatorWalletAddress || !isValidStellarPublicKey(creatorWalletAddress)) {
+    return { success: false, error: "Connect a valid Stellar testnet wallet before creating a circle." };
+  }
+  if (
+    payoutOrder.some((item, index) =>
+      item.payoutRound !== index + 1 ||
+      !roster.some(
+        (member) => member.walletAddress.trim().toUpperCase() === item.walletAddress.trim().toUpperCase()
+      )
+    )
+  ) {
+    return { success: false, error: "Payout order is invalid." };
   }
 
-  if (!existingProfile) {
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!serviceRoleKey) {
-      console.error("SUPABASE_SERVICE_ROLE_KEY is not defined");
-      return { success: false, error: "Failed to initialize user profile. System configuration error." };
-    }
+  const creatorAddress = creatorWalletAddress.trim().toUpperCase();
 
-    const adminSupabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      serviceRoleKey,
-      {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-        },
-      }
-    );
-
-    const { error: profileInsertError } = await adminSupabase
-      .from("profiles")
-      .insert({
-        id: authContext.user.id,
-        email: authContext.user.email || "",
-        full_name: authContext.user.user_metadata?.full_name || authContext.user.email?.split("@")[0] || "Ari Santos",
-      });
-
-    if (profileInsertError) {
-      console.error("Profile auto-insert error:", profileInsertError);
-      return { success: false, error: "Failed to initialize user profile: " + profileInsertError.message };
-    }
+  const creatorIndex = roster.findIndex(
+    (member) => member.walletAddress.trim().toUpperCase() === creatorAddress
+  );
+  if (creatorIndex === -1) {
+    return { success: false, error: "The connected creator wallet must be in the roster." };
   }
-
-  // Resolve the creator's wallet address (connected wallet or fallback format-compliant key)
-  const creatorAddress = creatorWalletAddress || "GAAAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNOOOPPPQQQRRR2";
-
-  // Check if the creator is explicitly listed in the roster
-  const creatorIndex = roster.findIndex((m) => m.walletAddress.toUpperCase() === creatorAddress.toUpperCase());
-  const hasCreator = creatorIndex !== -1;
-  const actualMemberCount = hasCreator ? roster.length : roster.length + 1;
+  const actualMemberCount = roster.length;
 
   // 1. Insert the circle into the public.circles table
   const { data: circle, error: circleError } = await supabase
     .from("circles")
     .insert({
       creator_id: authContext.user.id,
-      name: basics.name,
+      name: basics.name.trim(),
       status: "draft",
       contribution_amount: basics.contributionAmount,
       contribution_asset: basics.contributionAsset,
@@ -140,40 +130,23 @@ export async function createCircleAction(
     restriction_status: string;
   }> = [];
 
-  // Insert the creator (either mapped from the roster or manually)
-  if (hasCreator) {
-    const creatorMember = roster[creatorIndex];
-    const payoutItem = payoutOrder.find((p) => p.walletAddress.toUpperCase() === creatorMember.walletAddress.toUpperCase());
-    const payoutRound = payoutItem ? payoutItem.payoutRound : 1;
-
-    membersToInsert.push({
-      circle_id: circle.id,
-      profile_id: authContext.user.id,
-      display_name: creatorMember.displayName,
-      wallet_address: creatorMember.walletAddress,
-      role: "creator",
-      invite_status: "accepted",
-      agreement_status: "accepted",
-      collateral_status: "not_posted",
-      payment_status: "not_due",
-      payout_round: payoutRound,
-      restriction_status: "clear",
-    });
-  } else {
-    membersToInsert.push({
-      circle_id: circle.id,
-      profile_id: authContext.user.id,
-      display_name: authContext.profile?.full_name || authContext.user.email || "Ari Santos",
-      wallet_address: creatorAddress,
-      role: "creator",
-      invite_status: "accepted",
-      agreement_status: "accepted",
-      collateral_status: "not_posted",
-      payment_status: "not_due",
-      payout_round: 1,
-      restriction_status: "clear",
-    });
-  }
+  const creatorMember = roster[creatorIndex];
+  const creatorPayout = payoutOrder.find(
+    (item) => item.walletAddress.trim().toUpperCase() === creatorAddress
+  );
+  membersToInsert.push({
+    circle_id: circle.id,
+    profile_id: authContext.user.id,
+    display_name: creatorMember.displayName.trim(),
+    wallet_address: creatorAddress,
+    role: "creator",
+    invite_status: "accepted",
+    agreement_status: "accepted",
+    collateral_status: "not_posted",
+    payment_status: "not_due",
+    payout_round: creatorPayout?.payoutRound ?? 1,
+    restriction_status: "clear",
+  });
 
   // Resolve profile_ids from the profiles table for invited members
   const walletAddresses = roster.map(m => m.walletAddress.trim().toUpperCase());
@@ -204,8 +177,8 @@ export async function createCircleAction(
     membersToInsert.push({
       circle_id: circle.id,
       profile_id: resolvedProfileId,
-      display_name: member.displayName,
-      wallet_address: member.walletAddress,
+      display_name: member.displayName.trim(),
+      wallet_address: member.walletAddress.trim().toUpperCase(),
       role: "member",
       invite_status: "invited",
       agreement_status: "pending",
@@ -314,7 +287,7 @@ export async function pauseCircleAction(circleId: string, reason: string) {
     circle_id: circleId,
     event_type: "circle_paused",
     member_id: null,
-    details: reason,
+    metadata: { reason: reason.trim() },
   });
 
   revalidatePath(`/dashboard/${circleId}`);
@@ -401,7 +374,7 @@ export async function cancelCircleAction(circleId: string, reason: string) {
     circle_id: circleId,
     event_type: "circle_cancelled",
     member_id: null,
-    details: reason,
+    metadata: { reason: reason.trim() },
   });
 
   revalidatePath(`/dashboard/${circleId}`);
@@ -411,18 +384,18 @@ export async function cancelCircleAction(circleId: string, reason: string) {
 }
 
 export async function resolveUserByUsernameAction(username: string) {
-  const supabase = await createServerSupabaseClient();
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const dbClient = serviceRoleKey
-    ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      })
-    : supabase;
-  
-  // Clean username input (trim and remove leading @ if present)
+  const authContext = await requireAuthenticatedUser("/dashboard/create");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
   const cleanUsername = username.replace(/^@/, "").trim();
-  
-  const { data: profile, error } = await dbClient
+  if (!/^\d{6}$/.test(cleanUsername)) {
+    return { success: false, error: "User ID must be six digits." };
+  }
+
+  const supabase = await createServerSupabaseClient();
+  const { data: profile, error } = await supabase
     .from("profiles")
     .select("full_name, wallet_address")
     .eq("username", cleanUsername)
@@ -432,25 +405,26 @@ export async function resolveUserByUsernameAction(username: string) {
     return { success: false, error: "User ID not found." };
   }
 
-  return { 
-    success: true, 
-    displayName: profile.full_name || cleanUsername, 
-    walletAddress: profile.wallet_address || null 
+  return {
+    success: true,
+    displayName: profile.full_name || cleanUsername,
+    walletAddress: profile.wallet_address || null,
   };
 }
 
 export async function resolveUserByWalletAction(walletAddress: string) {
-  const supabase = await createServerSupabaseClient();
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const dbClient = serviceRoleKey
-    ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      })
-    : supabase;
+  const authContext = await requireAuthenticatedUser("/dashboard/create");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
 
   const cleanWallet = walletAddress.trim().toUpperCase();
+  if (!StrKey.isValidEd25519PublicKey(cleanWallet)) {
+    return { success: false, error: "Enter a valid Stellar account address." };
+  }
 
-  const { data: profile, error } = await dbClient
+  const supabase = await createServerSupabaseClient();
+  const { data: profile, error } = await supabase
     .from("profiles")
     .select("full_name, username")
     .eq("wallet_address", cleanWallet)
@@ -473,11 +447,16 @@ export async function updateProfileWalletAction(walletAddress: string) {
     return { success: false, error: "Not authenticated" };
   }
 
+  const cleanWallet = walletAddress.trim().toUpperCase();
+  if (!StrKey.isValidEd25519PublicKey(cleanWallet)) {
+    return { success: false, error: "Enter a valid Stellar account address." };
+  }
+
   const supabase = await createServerSupabaseClient();
 
   const { error } = await supabase
     .from("profiles")
-    .update({ wallet_address: walletAddress })
+    .update({ wallet_address: cleanWallet })
     .eq("id", authContext.user.id);
 
   if (error) {
@@ -488,110 +467,68 @@ export async function updateProfileWalletAction(walletAddress: string) {
   return { success: true };
 }
 
-export async function acceptAgreementAction(circleId: string, notificationId?: string, txHash?: string) {
-  const authContext = await requireAuthenticatedUser("/dashboard");
+export async function acceptAgreementAction(
+  circleId: string,
+  notificationId: string | undefined,
+  txHash: string
+) {
+  const authContext = await requireAuthenticatedUser(`/dashboard/${circleId}/agreement`);
   if (!authContext.configured || !authContext.user) {
     return { success: false, error: "Not authenticated" };
   }
 
   const supabase = await createServerSupabaseClient();
-
-  // Find user's member record in this circle
-  let { data: member } = await supabase
+  const { data: member } = await supabase
     .from("circle_members")
-    .select("id, invite_status")
+    .select("id, invite_status, wallet_address, circles(collateral_amount, contribution_asset)")
     .eq("circle_id", circleId)
     .eq("profile_id", authContext.user.id)
+    .eq("role", "member")
     .maybeSingle();
 
-  if (!member) {
-    // Try matching by email
-    const { data: memberByEmail } = await supabase
-      .from("circle_members")
-      .select("id, invite_status")
-      .eq("circle_id", circleId)
-      .eq("display_name", authContext.profile?.full_name || authContext.user.email || "")
-      .maybeSingle();
-    
-    if (memberByEmail) {
-      member = memberByEmail;
-    }
-  }
-
-  if (!member) {
-    // Try matching by first pending invite for testing
-    const { data: invited } = await supabase
-      .from("circle_members")
-      .select("id, invite_status")
-      .eq("circle_id", circleId)
-      .eq("invite_status", "invited")
-      .limit(1);
-    
-    if (invited && invited.length > 0) {
-      member = invited[0];
-    }
-  }
-
-  if (!member) {
+  if (!member || member.invite_status !== "invited") {
     return { success: false, error: "No pending invitation found for this circle." };
   }
-
-  const { error: updateError } = await supabase
-    .from("circle_members")
-    .update({
-      profile_id: authContext.user.id,
-      invite_status: "accepted",
-      agreement_status: "accepted",
-      collateral_status: "posted",
-    })
-    .eq("id", member.id);
-
-  if (updateError) {
-    return { success: false, error: updateError.message };
+  if (!env.contractId) {
+    return { success: false, error: "NEXT_PUBLIC_CIRCULO_CONTRACT_ID is not configured." };
   }
 
-  // If a notification ID is provided, mark it as read
-  if (notificationId) {
-    await supabase
-      .from("member_notifications")
-      .update({ read_at: new Date().toISOString() })
-      .eq("id", notificationId);
+  const circle = Array.isArray(member.circles) ? member.circles[0] : member.circles;
+  if (!circle) {
+    return { success: false, error: "Circle configuration was not found." };
   }
 
-  // Check if all members accepted
-  const { data: allMembers } = await supabase
-    .from("circle_members")
-    .select("invite_status")
-    .eq("circle_id", circleId);
+  try {
+    const tokenContractId = getTokenContractId(circle.contribution_asset);
+    const amount = BigInt(
+      Math.round(Number(circle.collateral_amount) * 10_000_000)
+    );
+    await verifyContributeTransaction(
+      txHash,
+      member.wallet_address,
+      env.contractId,
+      tokenContractId,
+      amount.toString()
+    );
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Testnet transaction verification failed.",
+    };
+  }
 
-  const allAccepted = allMembers && allMembers.every((m) => m.invite_status === "accepted");
+  const { error } = await supabase.rpc("accept_circle_invitation", {
+    target_circle_id: circleId,
+    target_notification_id: notificationId ?? null,
+    transaction_hash: txHash,
+  });
 
-  if (allAccepted) {
-    await supabase
-      .from("circles")
-      .update({ status: "active", current_round: 1, start_date: new Date().toISOString() })
-      .eq("id", circleId);
-
-    await supabase.from("audit_events").insert({
-      circle_id: circleId,
-      event_type: "circle_resumed",
-      tx_hash: txHash || null,
-      details: "All participants accepted. Circle activated automatically.",
-    });
-  } else {
-    // Audit log individual join
-    await supabase.from("audit_events").insert({
-      circle_id: circleId,
-      member_id: member.id,
-      event_type: "member_joined",
-      tx_hash: txHash || null,
-      details: "Participant accepted invite and deposited collateral.",
-    });
+  if (error) {
+    return { success: false, error: error.message };
   }
 
   revalidatePath(`/dashboard/${circleId}`);
   revalidatePath("/dashboard", "layout");
-
   return { success: true };
 }
 

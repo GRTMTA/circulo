@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs";
 
+import { createCirclesListFixture } from "../../../.storybook/fixtures";
 import { CircleList } from "@/components/dashboard/circle-list";
-import { createCirclesListMock } from "@/lib/mocks";
 
 const meta = {
   title: "Dashboard/Circle List",
@@ -12,8 +12,8 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = { args: { circles: createCirclesListMock() } };
-export const SingleCircle: Story = { args: { circles: createCirclesListMock(1) } };
+export const Default: Story = { args: { circles: createCirclesListFixture() } };
+export const SingleCircle: Story = { args: { circles: createCirclesListFixture(1) } };
 export const Empty: Story = { args: { circles: [] } };
-export const ManyCircles: Story = { args: { circles: createCirclesListMock(12) } };
+export const ManyCircles: Story = { args: { circles: createCirclesListFixture(12) } };
 

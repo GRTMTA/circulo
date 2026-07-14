@@ -1,0 +1,63 @@
+name: Application status
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: status-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Build and smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start and verify application
+        shell: bash
+        run: |
+          npm start > /tmp/circulo.log 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+
+          for attempt in {1..30}; do
+            if ! kill -0 "$app_pid" 2>/dev/null; then
+              cat /tmp/circulo.log
+              exit 1
+            fi
+
+            if response=$(curl --fail --silent http://127.0.0.1:3000/api/health); then
+              RESPONSE="$response" node -e '
+                const health = JSON.parse(process.env.RESPONSE);
+                if (health.ok !== true || health.service !== "circulo") process.exit(1);
+              '
+              exit 0
+            fi
+
+            sleep 2
+          done
+
+          cat /tmp/circulo.log
+          echo "Application did not become healthy within 60 seconds."
+          exit 1
