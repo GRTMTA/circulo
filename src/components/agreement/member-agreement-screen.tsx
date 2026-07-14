@@ -8,16 +8,28 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { acceptAgreementAction } from "@/app/dashboard/actions";
+import { StellarWalletsKit } from "@/config/stellar";
+import { env, getTokenContractId } from "@/lib/env";
+import {
+  submitSignedTransaction,
+  triggerContributeOnChain,
+} from "@/services/contractService";
 
 export function MemberAgreementScreen({
   circleId,
   circleName,
   rules,
+  collateralAmount,
+  contributionAsset,
+  memberWalletAddress,
   accepted = false,
 }: {
-  circleId?: string;
+  circleId: string;
   circleName: string;
   rules: string[];
+  collateralAmount: number;
+  contributionAsset: string;
+  memberWalletAddress: string;
   accepted?: boolean;
 }) {
   const router = useRouter();
@@ -25,22 +37,40 @@ export function MemberAgreementScreen({
   const [submitting, setSubmitting] = useState(false);
 
   async function handleAccept() {
-    if (!circleId) {
-      toast.success("Successfully joined the circle (mock mode)!");
-      return;
-    }
     setSubmitting(true);
     try {
-      const res = await acceptAgreementAction(circleId);
-      if (res.success) {
-        toast.success("Successfully joined the circle!");
-        router.push(`/dashboard/${circleId}`);
-        router.refresh();
-      } else {
-        toast.error(res.error || "Failed to join circle.");
+      const addressResult = await StellarWalletsKit.getAddress();
+      const memberAddress = addressResult?.address;
+      if (!memberAddress) throw new Error("Connect a Stellar testnet wallet first.");
+      if (memberAddress.toUpperCase() !== memberWalletAddress.toUpperCase()) {
+        throw new Error("Connect the Stellar wallet that received this invitation.");
       }
-    } catch {
-      toast.error("An error occurred. Please try again.");
+      if (!env.contractId) {
+        throw new Error("NEXT_PUBLIC_CIRCULO_CONTRACT_ID is not configured.");
+      }
+
+      const tokenContractId = getTokenContractId(contributionAsset);
+      const amount = BigInt(Math.round(collateralAmount * 10_000_000));
+      const { txXdr } = await triggerContributeOnChain(
+        memberAddress,
+        env.contractId,
+        tokenContractId,
+        amount.toString()
+      );
+      const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
+        address: memberAddress,
+        networkPassphrase: env.sorobanNetworkPassphrase,
+      });
+      const { hash } = await submitSignedTransaction(signedTxXdr);
+      const result = await acceptAgreementAction(circleId, undefined, hash);
+
+      if (!result.success) throw new Error(result.error || "Failed to join circle.");
+
+      toast.success("Agreement accepted and collateral posted on testnet.");
+      router.push(`/dashboard/${circleId}`);
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to join circle.");
     } finally {
       setSubmitting(false);
     }
@@ -60,25 +90,23 @@ export function MemberAgreementScreen({
             </div>
           ))}
         </div>
-        <label className="flex items-start gap-3 rounded-xl border border-border bg-white p-4 text-sm font-semibold cursor-pointer select-none">
+        <label className="flex cursor-pointer select-none items-start gap-3 rounded-xl border border-border bg-white p-4 text-sm font-semibold">
           <input
             type="checkbox"
             checked={checked}
             onChange={(event) => setChecked(event.target.checked)}
-            disabled={submitting}
+            disabled={accepted || submitting}
             className="mt-1 size-4 accent-[var(--color-primary-default)]"
           />
-          I understand and accept these circle rules.
+          I understand and accept these circle rules and the {collateralAmount} {contributionAsset} testnet collateral transaction.
         </label>
-        <Button disabled={!checked || submitting} onClick={handleAccept}>
-          {submitting ? (
-            <>
-              <Loader2 className="size-4 animate-spin mr-2" />
-              Joining Circle...
-            </>
-          ) : (
-            "Accept & Join Circle"
-          )}
+        <Button disabled={!checked || accepted || submitting} onClick={handleAccept}>
+          {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
+          {accepted
+            ? "Agreement Accepted"
+            : submitting
+              ? "Submitting on testnet..."
+              : "Accept & Post Collateral"}
         </Button>
       </CardContent>
     </Card>

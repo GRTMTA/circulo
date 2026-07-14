@@ -6,7 +6,7 @@ import { Trash2, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import type { CreateRosterMember } from "@/lib/mocks";
+import type { CreateRosterMember } from "@/lib/create/types";
 import { validateRosterEntry } from "@/lib/create/validation";
 import { resolveUserByUsernameAction, resolveUserByWalletAction } from "@/app/dashboard/actions";
 

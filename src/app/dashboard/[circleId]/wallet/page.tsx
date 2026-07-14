@@ -6,9 +6,8 @@ import { WalletBalanceDisplay } from "@/components/wallet/wallet-balance-display
 import { WalletConnectCard } from "@/components/wallet/wallet-connect-card";
 import { WalletPayButton } from "@/components/wallet/wallet-pay-button";
 import { getCircleDTO } from "@/lib/dashboard/queries";
-import { mockStablecoinOptions, mockWalletBalance, mockWalletConnected } from "@/lib/mocks";
 
-export default async function WalletPage({
+async function WalletPage({
   params,
 }: {
   params: Promise<{ circleId: string }>;
@@ -18,10 +17,14 @@ export default async function WalletPage({
 
   if (!data) notFound();
 
+  const currentRound = data.rounds.find(
+    (round) => round.roundNumber === data.circle.currentRound
+  );
+
   return (
     <DashboardShell
       title="Wallet & Stablecoin"
-      description="Connect wallet, inspect balance, and prepare contribution payment."
+      description="Connect a testnet wallet, inspect balances, and prepare contributions."
       breadcrumbItems={[
         { label: "All Circles", href: "/dashboard" },
         { label: data.circle.name, href: `/dashboard/${circleId}` },
@@ -29,16 +32,16 @@ export default async function WalletPage({
       ]}
     >
       <div className="grid gap-5 lg:grid-cols-[1fr_0.8fr]">
-        <WalletConnectCard
-          status={mockWalletConnected.status}
-          walletAddress={mockWalletConnected.walletAddress}
+        <WalletConnectCard walletAddress={null} />
+        <WalletBalanceDisplay asset={data.circle.contributionAsset} />
+        <WalletAssetSelect
+          options={[{ asset: data.circle.contributionAsset, network: "Stellar Testnet" }]}
+          selected={data.circle.contributionAsset}
         />
-        <WalletBalanceDisplay {...mockWalletBalance} />
-        <WalletAssetSelect options={mockStablecoinOptions} selected={data.circle.contributionAsset} />
         <WalletPayButton
           amount={data.circle.contributionAmount}
           asset={data.circle.contributionAsset}
-          dueDate="2026-07-09T12:00:00.000Z"
+          dueDate={currentRound?.dueAt ?? data.circle.startDate}
           status="idle"
         />
       </div>
