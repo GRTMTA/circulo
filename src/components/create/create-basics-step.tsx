@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { CreateBasicsState } from "@/lib/mocks";
+import type { CreateBasicsState } from "@/lib/create/types";
 
 export function CreateBasicsStep({
   values,

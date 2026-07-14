@@ -4,8 +4,6 @@ import { requireAuthenticatedUser } from "@/lib/auth";
 import { getDashboardDTO } from "@/lib/dashboard/queries";
 import { ConnectWalletButton } from "@/components/ConnectWalletButton";
 
-export const dynamic = "force-dynamic";
-
 export default async function DashboardLayout({
   children,
 }: {
@@ -15,8 +13,6 @@ export default async function DashboardLayout({
     getDashboardDTO(),
     requireAuthenticatedUser("/dashboard"),
   ]);
-
-  console.log("DashboardLayout - authContext.profile:", authContext.profile);
 
   const appShellUser = authContext.user
     ? {

@@ -12,12 +12,12 @@ import { CreateRosterStep } from "@/components/create/create-roster-step";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  mockCreateBasicsState,
-  mockCreateCollateralState,
-  mockCreatePayoutOrderState,
-  mockCreateRosterState,
-} from "@/lib/mocks";
+import type {
+  CreateBasicsState,
+  CreateCollateralState,
+  CreatePayoutOrderItem,
+  CreateRosterMember,
+} from "@/lib/create/types";
 import { createCircleAction } from "@/app/dashboard/actions";
 import {
   validateBasics,
@@ -29,20 +29,27 @@ import type { KitEventStateUpdated } from "@creit.tech/stellar-wallets-kit";
 
 const steps = ["Basics", "Roster", "Collateral", "Payout Order", "Review"];
 
+const initialBasics: CreateBasicsState = {
+  name: "",
+  contributionAmount: 10,
+  contributionAsset: "USDC",
+  intervalSeconds: 86_400,
+  memberCount: 2,
+};
+
+const initialCollateral: CreateCollateralState = {
+  collateralAmount: 0,
+  gracePeriodHours: 4,
+  slashPercentage: 100,
+};
+
 export function CreateWizardShell({ defaultCreatorName }: { defaultCreatorName?: string }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
-  const [basics, setBasics] = useState(mockCreateBasicsState);
-  const [roster, setRoster] = useState(() => {
-    return mockCreateRosterState.map((member) => {
-      if (member.displayName === "Ari Santos") {
-        return { ...member, displayName: defaultCreatorName || "Ari Santos" };
-      }
-      return member;
-    });
-  });
-  const [collateral, setCollateral] = useState(mockCreateCollateralState);
-  const [payoutOrder, setPayoutOrder] = useState(mockCreatePayoutOrderState);
+  const [basics, setBasics] = useState(initialBasics);
+  const [roster, setRoster] = useState<CreateRosterMember[]>([]);
+  const [collateral, setCollateral] = useState(initialCollateral);
+  const [payoutOrder, setPayoutOrder] = useState<CreatePayoutOrderItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [stepErrors, setStepErrors] = useState<Record<string, string>>({});
   const [attempted, setAttempted] = useState(false);
@@ -72,33 +79,25 @@ export function CreateWizardShell({ defaultCreatorName }: { defaultCreatorName?:
     };
   }, []);
 
-  // Automatically update the creator's entry address in the roster when a wallet is connected
+  // Keep the authenticated creator as the first roster member while connected.
   useEffect(() => {
-    if (creatorAddress) {
-      Promise.resolve().then(() => {
-        setRoster((current) => {
-          const hasCreatorPlaceholder = current.some(
-            (m) =>
-              m.walletAddress === "GAAAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNOOOPPPQQQRRR2" ||
-              m.displayName === "Ari Santos" ||
-              (defaultCreatorName && m.displayName === defaultCreatorName)
-          );
-          if (hasCreatorPlaceholder) {
-            return current.map((m) => {
-              if (
-                m.walletAddress === "GAAAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNOOOPPPQQQRRR2" ||
-                m.displayName === "Ari Santos" ||
-                (defaultCreatorName && m.displayName === defaultCreatorName)
-              ) {
-                return { ...m, walletAddress: creatorAddress };
-              }
-              return m;
-            });
-          }
-          return current;
-        });
-      });
+    if (!creatorAddress) {
+      setRoster((current) => current.filter((member) => member.displayName !== defaultCreatorName));
+      return;
     }
+
+    setRoster((current) => {
+      const creator = {
+        displayName: defaultCreatorName || "Circle creator",
+        walletAddress: creatorAddress,
+      };
+      const withoutCreator = current.filter(
+        (member) =>
+          member.walletAddress !== creatorAddress &&
+          member.displayName !== defaultCreatorName
+      );
+      return [creator, ...withoutCreator];
+    });
   }, [creatorAddress, defaultCreatorName]);
 
   // Synchronize payoutOrder state when the roster changes
@@ -181,22 +180,20 @@ export function CreateWizardShell({ defaultCreatorName }: { defaultCreatorName?:
       return;
     }
 
-    // Final step — submit
+    if (!creatorAddress) {
+      toast.error("Connect a Stellar testnet wallet before creating the circle.");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const res = await createCircleAction(basics, roster, collateral, payoutOrder, creatorAddress || undefined);
+      const res = await createCircleAction(basics, roster, collateral, payoutOrder, creatorAddress);
       if (res.success && res.circleId) {
         toast.success("Circle draft created successfully");
         router.push(`/dashboard/${res.circleId}`);
         router.refresh();
       } else {
-        if (res.error === "Supabase not configured") {
-          toast.success("Circle draft created (mock mode)");
-          router.push("/dashboard/circle-quezon-draft");
-          router.refresh();
-        } else {
-          toast.error(res.error || "Failed to create circle");
-        }
+        toast.error(res.error || "Failed to create circle");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create circle";

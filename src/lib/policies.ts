@@ -1,5 +1,13 @@
 import type { CircleStatus } from "@/lib/dashboard/types";
 
+export const AGREEMENT_RULES = [
+  "This is not an investment, lending product, yield product, or public fundraiser.",
+  "Contribution amount, member roster, payout order, collateral rules, and interval are locked before activation.",
+  "Collateral may be slashed after missed contribution rules are met.",
+  "The contract pays members directly. Circulo does not custody funds.",
+  "Cash-in and cash-out are handled by external anchor providers, not Circulo.",
+] as const;
+
 export const POLICIES = {
   minMembers: 2,
   maxMembers: 20,

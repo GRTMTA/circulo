@@ -5,7 +5,7 @@ import { Download } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import type { CalendarEvent } from "@/lib/mocks";
+import type { CalendarEvent } from "@/lib/calendar";
 
 function generateIcs(events: CalendarEvent[], circleName: string): string {
   const lines: string[] = [

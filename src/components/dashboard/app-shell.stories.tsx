@@ -1,10 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/nextjs";
-// Unused Lucide icons removed.
 
+import { createCirclesListFixture } from "../../../.storybook/fixtures";
 import { AppShell } from "@/components/dashboard/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { createCirclesListMock } from "@/lib/mocks";
 
 function ShellContent() {
   return (
@@ -73,12 +72,12 @@ export const WithHeaderActions: Story = {
 
 export const WithCircleSwitcher: Story = {
   args: {
-    circles: createCirclesListMock(),
+    circles: createCirclesListFixture(),
   },
 };
 
 export const ManyCircles: Story = {
   args: {
-    circles: createCirclesListMock(12),
+    circles: createCirclesListFixture(12),
   },
 };
