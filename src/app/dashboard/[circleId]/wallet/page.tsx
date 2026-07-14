@@ -7,7 +7,7 @@ import { WalletConnectCard } from "@/components/wallet/wallet-connect-card";
 import { WalletPayButton } from "@/components/wallet/wallet-pay-button";
 import { getCircleDTO } from "@/lib/dashboard/queries";
 
-async function WalletPage({
+export default async function WalletPage({
   params,
 }: {
   params: Promise<{ circleId: string }>;
