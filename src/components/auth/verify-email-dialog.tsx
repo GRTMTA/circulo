@@ -34,7 +34,7 @@ export function VerifyEmailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false}>
+      <DialogContent>
         <DialogHeader>
           <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-[var(--color-primary-muted)]">
             <Mail className="size-6 text-[var(--color-primary-default)]" />
@@ -66,6 +66,13 @@ export function VerifyEmailDialog({
               {resendPending ? "Resending..." : "Resend verification email"}
             </Button>
           </form>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => onOpenChange?.(false)}
+          >
+            I&apos;ll verify later
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

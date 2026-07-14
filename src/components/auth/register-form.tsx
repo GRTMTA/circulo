@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { registerAction } from "@/app/auth/actions";
@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 export function RegisterForm() {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(registerAction, idleState);
+  const [verifyDialogDismissed, setVerifyDialogDismissed] = useState(false);
 
   useEffect(() => {
     if (state.status === "success" && state.redirectTo) {
@@ -28,6 +29,12 @@ export function RegisterForm() {
       router.refresh();
     }
   }, [router, state]);
+
+  useEffect(() => {
+    if (state.status === "verification") {
+      setVerifyDialogDismissed(false);
+    }
+  }, [state]);
 
   return (
     <>
@@ -120,7 +127,10 @@ export function RegisterForm() {
       {state.email ? (
         <VerifyEmailDialog
           email={state.email}
-          open={state.status === "verification"}
+          open={state.status === "verification" && !verifyDialogDismissed}
+          onOpenChange={(open) => {
+            if (!open) setVerifyDialogDismissed(true);
+          }}
         />
       ) : null}
     </>

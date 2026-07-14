@@ -21,10 +21,13 @@ export function AuthStatus({ state }: AuthStatusProps) {
   const Icon = isError ? CircleAlertIcon : isVerification ? MailIcon : CircleCheckIcon;
 
   return (
-    <Alert variant={isError ? "destructive" : "default"}>
+    <Alert
+      variant={isError ? "destructive" : "default"}
+      aria-live={isError ? "assertive" : "polite"}
+    >
       <Icon className="size-4" />
       <AlertTitle>
-        {isError ? "We could not continue" : isVerification ? "Check your email" : "Success"}
+        {isError ? "Something needs your attention" : isVerification ? "Check your email" : "Success"}
       </AlertTitle>
       <AlertDescription>{state.message}</AlertDescription>
     </Alert>

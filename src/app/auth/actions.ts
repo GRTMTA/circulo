@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 
 import { getIsSupabaseConfigured } from "@/lib/env";
 import { getSafeNextPath } from "@/lib/auth";
@@ -60,10 +59,15 @@ export async function loginAction(
   }
 
   const supabase = await createServerSupabaseClient();
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  let error;
+  try {
+    ({ error } = await supabase.auth.signInWithPassword({ email, password }));
+  } catch (caught) {
+    console.error("Login request failed:", caught);
+    return errorState(
+      "We couldn't reach the authentication service. Check your connection and try again."
+    );
+  }
 
   if (error) {
     if (error.message === "Email not confirmed") {
@@ -72,6 +76,12 @@ export async function loginAction(
         message: "Confirm your email before signing in.",
         email,
       };
+    }
+
+    if (error.message === "Invalid login credentials") {
+      return errorState(
+        "That email and password combination doesn't match an account. Check your details and try again."
+      );
     }
 
     return errorState(error.message);
@@ -283,6 +293,4 @@ export async function logoutAction() {
     await supabase.auth.signOut();
     revalidatePath("/", "layout");
   }
-
-  redirect("/login");
 }

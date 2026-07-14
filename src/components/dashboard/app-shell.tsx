@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { logoutAction } from "@/app/auth/actions";
 import {
@@ -278,8 +278,23 @@ export function AppShell({
   circles = [],
 }: AppShellProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(defaultCollapsed);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  async function handleSignOut() {
+    setIsSigningOut(true);
+    try {
+      await logoutAction();
+      router.replace("/login");
+      router.refresh();
+    } catch {
+      setIsSigningOut(false);
+      toast.error("Could not sign out. Please try again.");
+    }
+  }
+
   const userInitials = user?.avatarFallback ?? (user ? getInitials(user.name) : "U");
   const visibleNavigation = useMemo<AppShellNavigationGroup[]>(() => {
     const circleItemsList: AppShellNavigationItem[] = [];
@@ -462,11 +477,10 @@ export function AppShell({
                           variant="ghost"
                           size="sm"
                           className="w-full text-xs font-semibold h-8 text-[var(--color-error-default)] hover:bg-[var(--color-error-muted)] hover:text-[var(--color-error-default)]"
-                          onClick={async () => {
-                            await logoutAction();
-                          }}
+                          disabled={isSigningOut}
+                          onClick={handleSignOut}
                         >
-                          Sign Out
+                          {isSigningOut ? "Signing out..." : "Sign Out"}
                         </Button>
                       </div>
                     </div>

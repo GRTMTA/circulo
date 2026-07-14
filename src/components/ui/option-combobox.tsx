@@ -90,14 +90,14 @@ export function OptionCombobox({
             ) : null}
           </span>
         ) : (
-          <span className="text-[var(--color-text-muted)]">{placeholder}</span>
+          <span className="text-muted-foreground">{placeholder}</span>
         )}
-        <ChevronDown className="size-4 text-[var(--color-text-muted)]" />
+        <ChevronDown className="size-4 text-muted-foreground" />
       </PopoverTrigger>
       <PopoverContent className="p-2">
         {searchable ? (
           <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-[var(--color-text-muted)]" />
+            <Search className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
