@@ -1,14 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { Trash2, Loader2, Plus } from "lucide-react";
+import { Trash2, Loader2, Plus, CheckCircle2, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import type { CreateRosterMember } from "@/lib/create/types";
-import { validateRosterEntry } from "@/lib/create/validation";
+import { isValidStellarPublicKey, validateRosterEntry } from "@/lib/create/validation";
 import { resolveUserByUsernameAction, resolveUserByWalletAction } from "@/app/dashboard/actions";
+
+interface ResolvedUser {
+  displayName: string;
+  username: string | null;
+  walletAddress: string;
+}
+
+function getInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("") || "?";
+}
 
 export function CreateRosterStep({
   members,
@@ -25,207 +40,259 @@ export function CreateRosterStep({
 }) {
   const [userId, setUserId] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
-  const [resolvedName, setResolvedName] = useState("");
+  const [resolvedUser, setResolvedUser] = useState<ResolvedUser | null>(null);
   const [entryErrors, setEntryErrors] = useState<Record<string, string>>({});
   const [resolving, setResolving] = useState(false);
 
-  async function handleUserIdChange(value: string) {
-    setUserId(value);
-    setEntryErrors({});
-    
-    const cleanVal = value.trim();
-    if (!cleanVal) {
-      setWalletAddress("");
-      setResolvedName("");
-      return;
-    }
+  const rosterFull = members.length >= memberCount;
+  const walletLocked = resolvedUser?.walletAddress
+    ? walletAddress.trim().toUpperCase() === resolvedUser.walletAddress.toUpperCase()
+    : false;
 
-    const isNumericId = /^\d{6}$/.test(cleanVal.replace(/^@/, ""));
-    if (isNumericId) {
-      setResolving(true);
-      try {
-        const res = await resolveUserByUsernameAction(cleanVal);
-        if (res.success) {
-          setResolvedName(res.displayName || "");
-          setWalletAddress(res.walletAddress || "");
-        } else {
-          setEntryErrors({ userId: "User ID not found." });
-          setResolvedName("");
-          setWalletAddress("");
-        }
-      } catch {
-        setEntryErrors({ userId: "Error resolving User ID." });
-      } finally {
-        setResolving(false);
-      }
-    } else {
-      setResolvedName("");
-      setWalletAddress("");
-    }
-  }
-
-  async function handleWalletChange(value: string) {
-    setWalletAddress(value);
-    setEntryErrors({});
-    
-    const cleanVal = value.trim();
-    if (!cleanVal) {
-      setUserId("");
-      setResolvedName("");
-      return;
-    }
-
-    const isStellar = cleanVal.toUpperCase().startsWith("G") && cleanVal.length === 56;
-    if (isStellar) {
-      setResolving(true);
-      try {
-        const res = await resolveUserByWalletAction(cleanVal);
-        if (res.success) {
-          setResolvedName(res.displayName || "");
-          setUserId(res.username || "");
-        } else {
-          setUserId("");
-          setResolvedName("");
-        }
-      } catch {
-        setUserId("");
-        setResolvedName("");
-      } finally {
-        setResolving(false);
-      }
-    } else {
-      setUserId("");
-      setResolvedName("");
-    }
-  }
-
-  async function handleAdd() {
-    const cleanId = userId.trim();
-    const cleanWallet = walletAddress.trim();
-
-    if (members.length >= memberCount) {
-      setEntryErrors({ walletAddress: `Cannot add more than ${memberCount} members (configured limit).` });
-      return;
-    }
-
-    if (!cleanWallet) {
-      setEntryErrors({ walletAddress: "Wallet address is required." });
-      return;
-    }
-
-    const isStellarAddress = cleanWallet.toUpperCase().startsWith("G") && cleanWallet.length === 56;
-    if (!isStellarAddress) {
-      setEntryErrors({ walletAddress: "Please enter a valid 56-character Stellar wallet address." });
-      return;
-    }
-
-    if (cleanId && !/^\d{6}$/.test(cleanId.replace(/^@/, ""))) {
-      setEntryErrors({ userId: "User ID must be a 6-digit number." });
-      return;
-    }
-
-    const targetWallet = cleanWallet.toUpperCase();
-    const targetName = resolvedName || `${targetWallet.slice(0, 6)}...${targetWallet.slice(-4)}`;
-
-    const fieldErrors = validateRosterEntry(targetName, targetWallet, members);
-    setEntryErrors(fieldErrors);
-    if (Object.keys(fieldErrors).length > 0) return;
-
-    onAddMember({ displayName: targetName, walletAddress: targetWallet });
-    
+  function resetEntry() {
     setUserId("");
     setWalletAddress("");
-    setResolvedName("");
+    setResolvedUser(null);
     setEntryErrors({});
+  }
+
+  // Resolve the User ID when the field loses focus.
+  async function handleUserIdBlur() {
+    const cleanId = userId.trim().replace(/^@/, "");
+    if (!cleanId) {
+      setEntryErrors((prev) => ({ ...prev, userId: "" }));
+      return;
+    }
+
+    if (!/^\d{6}$/.test(cleanId)) {
+      setResolvedUser(null);
+      setEntryErrors((prev) => ({ ...prev, userId: "User ID must be a 6-digit number." }));
+      return;
+    }
+
+    setResolving(true);
+    try {
+      const res = await resolveUserByUsernameAction(cleanId);
+      if (res.success && res.walletAddress) {
+        setResolvedUser({
+          displayName: res.displayName || cleanId,
+          username: cleanId,
+          walletAddress: res.walletAddress,
+        });
+        setWalletAddress(res.walletAddress);
+        setEntryErrors({});
+      } else if (res.success && !res.walletAddress) {
+        setResolvedUser(null);
+        setEntryErrors({ userId: "That user hasn't connected a wallet yet, so they can't be added." });
+      } else {
+        setResolvedUser(null);
+        setEntryErrors({ userId: res.error || "No user found with that ID." });
+      }
+    } catch {
+      setResolvedUser(null);
+      setEntryErrors({ userId: "Couldn't verify that User ID. Try again." });
+    } finally {
+      setResolving(false);
+    }
+  }
+
+  // Validate the wallet address (and try to resolve a name) on blur.
+  async function handleWalletBlur() {
+    const cleanWallet = walletAddress.trim().toUpperCase();
+    if (!cleanWallet) {
+      setEntryErrors((prev) => ({ ...prev, walletAddress: "" }));
+      return;
+    }
+
+    if (!isValidStellarPublicKey(cleanWallet)) {
+      setEntryErrors((prev) => ({
+        ...prev,
+        walletAddress: "Enter a valid Stellar address (starts with G, 56 characters).",
+      }));
+      return;
+    }
+
+    setEntryErrors((prev) => ({ ...prev, walletAddress: "" }));
+
+    // If a User ID already resolved this wallet, keep that profile card.
+    if (resolvedUser && resolvedUser.walletAddress.toUpperCase() === cleanWallet) {
+      return;
+    }
+
+    // Otherwise attempt a courtesy lookup so we can show who owns this wallet.
+    setResolving(true);
+    try {
+      const res = await resolveUserByWalletAction(cleanWallet);
+      if (res.success) {
+        setResolvedUser({
+          displayName: res.displayName || "Registered member",
+          username: res.username ?? null,
+          walletAddress: cleanWallet,
+        });
+        if (res.username) setUserId(res.username);
+      } else {
+        setResolvedUser(null);
+      }
+    } catch {
+      setResolvedUser(null);
+    } finally {
+      setResolving(false);
+    }
+  }
+
+  function handleUserIdChange(value: string) {
+    setUserId(value);
+    setResolvedUser(null);
+    setEntryErrors((prev) => ({ ...prev, userId: "" }));
+  }
+
+  function handleWalletChange(value: string) {
+    setWalletAddress(value);
+    if (resolvedUser) setResolvedUser(null);
+    setEntryErrors((prev) => ({ ...prev, walletAddress: "" }));
+  }
+
+  const walletValid = isValidStellarPublicKey(walletAddress.trim().toUpperCase());
+  const userIdClean = userId.trim().replace(/^@/, "");
+  const userIdBlocks = userIdClean.length > 0 && !resolvedUser;
+  const canAdd =
+    !resolving &&
+    !rosterFull &&
+    walletValid &&
+    !userIdBlocks &&
+    !entryErrors.userId &&
+    !entryErrors.walletAddress;
+
+  function handleAdd() {
+    const cleanWallet = walletAddress.trim().toUpperCase();
+
+    if (rosterFull) {
+      setEntryErrors({ walletAddress: `This circle is limited to ${memberCount} members.` });
+      return;
+    }
+
+    const displayName =
+      resolvedUser?.displayName ||
+      `${cleanWallet.slice(0, 6)}...${cleanWallet.slice(-4)}`;
+
+    const fieldErrors = validateRosterEntry(displayName, cleanWallet, members);
+    if (Object.keys(fieldErrors).length > 0) {
+      setEntryErrors(fieldErrors);
+      return;
+    }
+
+    onAddMember({ displayName, walletAddress: cleanWallet });
+    resetEntry();
   }
 
   return (
     <div className="grid gap-6">
       {/* Roster Capacity Badge */}
       <div className="flex items-center justify-between bg-[var(--color-background-muted)]/30 border border-[var(--color-border-muted)] px-4 py-2.5 rounded-xl">
-        <span className="text-xs font-semibold text-muted-foreground">Roster Size limit</span>
+        <span className="text-xs font-semibold text-muted-foreground">Roster size limit</span>
         <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
-          members.length === memberCount 
-            ? "bg-green-500/10 text-green-500 border-green-500/20" 
+          members.length === memberCount
+            ? "bg-green-500/10 text-green-500 border-green-500/20"
             : "bg-indigo-500/10 text-indigo-500 border-indigo-500/20"
         }`}>
           {members.length} / {memberCount} Members
         </span>
       </div>
 
-      {/* Two Input Fields */}
-      <div className="grid gap-4 md:grid-cols-2 md:items-start">
-        {/* User ID Field */}
-        <Field>
-          <FieldLabel htmlFor="member-id">User ID (Optional)</FieldLabel>
-          <Input
-            id="member-id"
-            value={userId}
-            onChange={(event) => handleUserIdChange(event.target.value)}
-            placeholder="e.g. 192083"
-            aria-invalid={!!entryErrors.userId}
-          />
-          <FieldDescription>Automatically resolves name and wallet address.</FieldDescription>
-          {entryErrors.userId ? (
-            <FieldError>{entryErrors.userId}</FieldError>
-          ) : null}
-        </Field>
+      <div className="rounded-2xl border border-[var(--color-border-muted)] bg-[var(--color-background-default)] p-5">
+        <p className="text-sm text-muted-foreground mb-4">
+          Add each member by their <strong>wallet address</strong>. If they already have a
+          Circulo account, enter their <strong>User ID</strong> to fill in their details
+          automatically.
+        </p>
 
-        {/* Wallet Address Field */}
-        <Field>
-          <FieldLabel htmlFor="member-wallet">Wallet Address</FieldLabel>
-          <Input
-            id="member-wallet"
-            value={walletAddress}
-            onChange={(event) => handleWalletChange(event.target.value)}
-            placeholder="Starts with G..."
-            aria-invalid={!!entryErrors.walletAddress}
-          />
-          <FieldDescription>Required. Resolves details if already registered.</FieldDescription>
-          {entryErrors.walletAddress ? (
-            <FieldError>{entryErrors.walletAddress}</FieldError>
-          ) : null}
-        </Field>
-      </div>
+        <div className="grid gap-4 md:grid-cols-2 md:items-start">
+          {/* User ID Field (optional lookup) */}
+          <Field>
+            <FieldLabel htmlFor="member-id">User ID</FieldLabel>
+            <Input
+              id="member-id"
+              value={userId}
+              onChange={(event) => handleUserIdChange(event.target.value)}
+              onBlur={handleUserIdBlur}
+              placeholder="e.g. 192083"
+              aria-invalid={!!entryErrors.userId}
+            />
+            <FieldDescription>Optional. Looks up a registered member.</FieldDescription>
+            {entryErrors.userId ? <FieldError>{entryErrors.userId}</FieldError> : null}
+          </Field>
 
-      {resolving && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground bg-[var(--color-background-muted)]/20 p-3 rounded-xl border border-[var(--color-border-muted)]">
-          <Loader2 className="size-4 animate-spin text-primary" />
-          <span>Resolving user details...</span>
+          {/* Wallet Address Field (required) */}
+          <Field>
+            <FieldLabel htmlFor="member-wallet" required>Wallet Address</FieldLabel>
+            <Input
+              id="member-wallet"
+              value={walletAddress}
+              onChange={(event) => handleWalletChange(event.target.value)}
+              onBlur={handleWalletBlur}
+              placeholder="Starts with G..."
+              readOnly={walletLocked}
+              aria-invalid={!!entryErrors.walletAddress}
+              className={walletLocked ? "bg-[var(--color-background-muted)]/40" : undefined}
+            />
+            <FieldDescription>
+              {walletLocked ? "Filled from the resolved User ID." : "Required. 56-character Stellar address."}
+            </FieldDescription>
+            {entryErrors.walletAddress ? <FieldError>{entryErrors.walletAddress}</FieldError> : null}
+          </Field>
         </div>
-      )}
 
-      {!resolving && resolvedName && (
-        <div className="flex items-center justify-between rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3 text-sm animate-in fade-in duration-200">
-          <div>
-            <span className="text-[10px] text-indigo-500/80 font-bold uppercase tracking-wider block">Resolved Name</span>
-            <span className="font-semibold text-[var(--color-text-default)]">{resolvedName}</span>
+        {/* Resolution feedback */}
+        {resolving && (
+          <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground bg-[var(--color-background-muted)]/20 p-3 rounded-xl border border-[var(--color-border-muted)]">
+            <Loader2 className="size-4 animate-spin text-primary" />
+            <span>Resolving user details...</span>
           </div>
-          {userId.trim() && (
-            <span className="text-xs bg-indigo-500/10 text-indigo-500 font-semibold px-2 py-0.5 rounded border border-indigo-500/20">
-              User ID: {userId.trim()}
-            </span>
-          )}
-        </div>
-      )}
+        )}
 
-      {/* Add Button */}
-      <div className="flex justify-end border-b border-[var(--color-border-muted)] pb-5">
-        <Button 
-          type="button" 
-          onClick={handleAdd} 
-          disabled={resolving || (!userId.trim() && !walletAddress.trim()) || members.length >= memberCount} 
-          className="font-semibold h-11"
-        >
-          {resolving ? <Loader2 className="size-4 animate-spin mr-2" /> : <Plus className="size-4 mr-2" />}
-          Add Participant
-        </Button>
+        {!resolving && resolvedUser && (
+          <div className="mt-4 flex items-center gap-3 rounded-xl border border-green-500/20 bg-green-500/5 p-3 animate-in fade-in duration-200">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-indigo-500/10 text-sm font-bold text-indigo-500">
+              {getInitials(resolvedUser.displayName)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <CheckCircle2 className="size-3.5 shrink-0 text-green-500" />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-green-600">Verified member</span>
+              </div>
+              <p className="truncate font-semibold text-[var(--color-text-default)]">{resolvedUser.displayName}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {resolvedUser.username ? `User ID ${resolvedUser.username} · ` : ""}
+                {resolvedUser.walletAddress.slice(0, 6)}...{resolvedUser.walletAddress.slice(-4)}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Add Button */}
+        <div className="mt-5 flex justify-end">
+          <Button
+            type="button"
+            onClick={handleAdd}
+            disabled={!canAdd}
+            className="font-semibold h-11"
+          >
+            {resolving ? <Loader2 className="size-4 animate-spin mr-2" /> : <Plus className="size-4 mr-2" />}
+            Add Participant
+          </Button>
+        </div>
       </div>
 
-      {errors.members && (
+      {errors.roster && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-600">
+          <UserRound className="size-4 shrink-0" />
+          <span>{errors.roster}</span>
+        </div>
+      )}
+      {errors.duplicates && (
         <div className="flex items-center gap-2 rounded-xl border border-[var(--color-error-default)]/20 bg-[var(--color-error-default)]/5 p-4 text-sm text-[var(--color-error-default)]">
           <Trash2 className="size-4 shrink-0" />
-          <span>{errors.members}</span>
+          <span>{errors.duplicates}</span>
         </div>
       )}
 

@@ -23,7 +23,12 @@ function FieldGroup({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
-function FieldLabel({ className, ...props }: React.ComponentProps<"label">) {
+function FieldLabel({
+  className,
+  required,
+  children,
+  ...props
+}: React.ComponentProps<"label"> & { required?: boolean }) {
   return (
     <label
       data-slot="field-label"
@@ -32,7 +37,17 @@ function FieldLabel({ className, ...props }: React.ComponentProps<"label">) {
         className
       )}
       {...props}
-    />
+    >
+      {children}
+      {required ? (
+        <span
+          aria-hidden="true"
+          className="ml-1 text-[var(--color-error-default)]"
+        >
+          *
+        </span>
+      ) : null}
+    </label>
   );
 }
 
