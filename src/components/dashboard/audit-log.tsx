@@ -15,7 +15,6 @@ import {
   Clock,
   CreditCard,
   Flag,
-  Link2,
   LockKeyhole,
   type LucideIcon,
   RefreshCcw,
@@ -27,7 +26,6 @@ import {
   UserMinus,
   UserPlus,
   UsersRound,
-  Wallet,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
