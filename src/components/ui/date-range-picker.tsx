@@ -104,7 +104,7 @@ export function DateRangePicker({
           {displayValue ? (
             <span className="truncate">{displayValue}</span>
           ) : (
-            <span className="truncate text-[var(--color-text-muted)]">{placeholder}</span>
+            <span className="truncate text-muted-foreground">{placeholder}</span>
           )}
         </span>
       </PopoverTrigger>

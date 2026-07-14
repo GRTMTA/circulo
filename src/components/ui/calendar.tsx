@@ -39,8 +39,8 @@ function Calendar({ className, classNames, ...props }: DayPickerProps) {
           "bg-[var(--color-primary-lighter)] [&_button]:bg-transparent [&_button]:font-medium [&_button]:text-[var(--color-primary-text)] [&_button]:hover:bg-[var(--color-primary-light)]/45",
         range_end:
           "rounded-r-md bg-gradient-to-r from-[var(--color-primary-lighter)] from-50% to-transparent to-50% [&_button]:bg-[var(--color-primary)] [&_button]:text-white",
-        outside: "text-[var(--color-text-muted)] opacity-70",
-        disabled: "text-[var(--color-text-muted)] opacity-50",
+        outside: "text-muted-foreground opacity-70",
+        disabled: "text-muted-foreground opacity-50",
         hidden: "invisible",
         ...classNames,
       }}

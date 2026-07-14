@@ -46,7 +46,7 @@ export function DatePicker({
           {selectedDate ? (
             <span className="truncate">{formatDateOnly(value, "PPP")}</span>
           ) : (
-            <span className="truncate text-[var(--color-text-muted)]">{placeholder}</span>
+            <span className="truncate text-muted-foreground">{placeholder}</span>
           )}
         </span>
       </PopoverTrigger>
