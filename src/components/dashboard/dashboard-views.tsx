@@ -72,6 +72,7 @@ import {
   resumeCircleAction,
   cancelCircleAction,
   acceptAgreementAction,
+  activateCircleAction,
 } from "@/app/dashboard/actions";
 import { ContributionReminderBanner } from "@/components/reminders/contribution-reminder-banner";
 import { ReminderSettingsPanel } from "@/components/reminders/reminder-settings-panel";
@@ -613,6 +614,61 @@ export function PayoutTimeline({
   );
 }
 
+function ActivateButton({
+  circleId,
+  ready,
+  status,
+}: {
+  circleId: string;
+  ready: boolean;
+  status: string;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (status !== "draft") {
+    return (
+      <div className="mt-6 rounded-xl border border-[var(--color-success-default)]/20 bg-[var(--color-success-default)]/5 p-4 text-sm">
+        <p className="font-semibold text-[var(--color-success-default)]">Circle is already active</p>
+        <p className="mt-1 text-muted-foreground">This circle has been activated and is processing rounds.</p>
+      </div>
+    );
+  }
+
+  async function handleActivate() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await activateCircleAction(circleId);
+      if (!res.success) {
+        setError(res.error ?? "Activation failed.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Activation failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="mt-6 grid gap-3">
+      {error ? (
+        <div className="rounded-xl border border-[var(--color-error-default)]/20 bg-[var(--color-error-default)]/5 p-3 text-sm text-[var(--color-error-default)]">
+          {error}
+        </div>
+      ) : null}
+      <Button disabled={!ready || loading} onClick={handleActivate}>
+        {loading ? "Activating..." : ready ? "Activate Circle" : "Activation Locked"}
+      </Button>
+      {ready ? (
+        <p className="text-xs text-muted-foreground">
+          All gates are satisfied. Activating will lock the circle permanently and begin Round 1.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function CreatorDashboard({
   data,
   isTabContentOnly = false,
@@ -673,30 +729,50 @@ function CreatorDashboard({
       <TabsContent value="activation" className="grid gap-6">
         <Alert>
           <ShieldCheck className="size-4" />
-          <AlertTitle>Creator activation after contract verification</AlertTitle>
+          <AlertTitle>Activation requires all gates to pass</AlertTitle>
           <AlertDescription>
-            Activation unlocks only when members, collateral, agreement, payout order, and locked rules are complete.
+            A circle cannot go Active until every member has posted collateral, accepted the agreement,
+            and all settings are locked. This protects the group — no one participates without skin in the game.
           </AlertDescription>
         </Alert>
         <SectionCard title="Activation requirements">
           <div className="grid gap-3 md:grid-cols-2">
-            {[
-              [`${acceptedMembers} / ${data.members.length} members accepted`, acceptedMembers === data.members.length],
+            {([
+              [`${acceptedMembers} / ${data.members.length} members accepted invite`, acceptedMembers === data.members.length],
               [`${postedCollateral} / ${data.members.length} collateral posted`, postedCollateral === data.members.length],
               [`${acceptedAgreements} / ${data.members.length} agreements accepted`, acceptedAgreements === data.members.length],
               ["Payout order selected and locked", data.circle.payoutOrderLocked],
               ["Contribution amount and interval locked", data.circle.settingsLocked],
               ["Default and collateral rules locked", data.circle.rulesLocked],
-            ].map(([label, complete]) => (
-              <div key={String(label)} className="flex items-center justify-between rounded-xl border border-border bg-white p-4">
+            ] as [string, boolean][]).map(([label, complete]) => (
+              <div key={label} className="flex items-center justify-between rounded-xl border border-border bg-white p-4">
                 <span className="font-medium">{label}</span>
                 <StatusBadge status={complete ? "accepted" : "pending"} />
               </div>
             ))}
           </div>
-          <Button className="mt-6" disabled={!activationReady}>
-            {activationReady ? "Activate Pool" : "Activation Locked"}
-          </Button>
+
+          {!activationReady ? (
+            <div className="mt-6 rounded-xl border border-[var(--color-warning-default)]/20 bg-[var(--color-warning-default)]/5 p-4 text-sm text-muted-foreground">
+              <p className="font-semibold text-[var(--color-text-default)]">Why can&apos;t I activate yet?</p>
+              <ul className="mt-2 list-inside list-disc space-y-1">
+                {postedCollateral < data.members.length ? (
+                  <li>{data.members.length - postedCollateral} member{data.members.length - postedCollateral > 1 ? "s" : ""} still need{data.members.length - postedCollateral === 1 ? "s" : ""} to post collateral.</li>
+                ) : null}
+                {acceptedMembers < data.members.length ? (
+                  <li>{data.members.length - acceptedMembers} invite{data.members.length - acceptedMembers > 1 ? "s" : ""} pending.</li>
+                ) : null}
+                {acceptedAgreements < data.members.length ? (
+                  <li>{data.members.length - acceptedAgreements} agreement{data.members.length - acceptedAgreements > 1 ? "s" : ""} not yet accepted.</li>
+                ) : null}
+                {!data.circle.payoutOrderLocked ? <li>Payout order not locked.</li> : null}
+                {!data.circle.settingsLocked ? <li>Settings not locked.</li> : null}
+                {!data.circle.rulesLocked ? <li>Rules not locked.</li> : null}
+              </ul>
+            </div>
+          ) : null}
+
+          <ActivateButton circleId={data.circle.id} ready={activationReady} status={data.circle.status} />
         </SectionCard>
       </TabsContent>
 
