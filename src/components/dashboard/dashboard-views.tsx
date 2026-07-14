@@ -90,6 +90,7 @@ import { toast } from "sonner";
 import { StellarWalletsKit } from "@/config/stellar";
 import { triggerContributeOnChain, submitSignedTransaction } from "@/services/contractService";
 import { env, getTokenContractId } from "@/lib/env";
+import { MIN_CYCLE_MEMBERS } from "@/lib/create/validation";
 import type {
   CreatorDashboardDTO,
   DashboardAuditEvent,
@@ -682,11 +683,18 @@ function CreatorDashboard({
   const acceptedAgreements = data.members.filter((member) => member.agreementStatus === "accepted").length;
   const paidContributions = data.contributions.filter((contribution) => contribution.status === "paid").length;
   const missingContributions = data.members.length - paidContributions;
+  // A member counts as "ready" only when their invite, agreement, and
+  // collateral are all validated.
+  const readyMembers = data.members.filter(
+    (member) =>
+      member.inviteStatus === "accepted" &&
+      member.agreementStatus === "accepted" &&
+      member.collateralStatus === "posted"
+  ).length;
+  const allPresentValidated = data.members.length > 0 && readyMembers === data.members.length;
   const activationReady =
-    data.members.length > 0 &&
-    acceptedMembers === data.members.length &&
-    postedCollateral === data.members.length &&
-    acceptedAgreements === data.members.length &&
+    readyMembers >= MIN_CYCLE_MEMBERS &&
+    allPresentValidated &&
     data.circle.payoutOrderLocked &&
     data.circle.settingsLocked &&
     data.circle.rulesLocked;
@@ -729,17 +737,19 @@ function CreatorDashboard({
       <TabsContent value="activation" className="grid gap-6">
         <Alert>
           <ShieldCheck className="size-4" />
-          <AlertTitle>Activation requires all gates to pass</AlertTitle>
+          <AlertTitle>Starting a cycle requires all gates to pass</AlertTitle>
           <AlertDescription>
-            A circle cannot go Active until every member has posted collateral, accepted the agreement,
-            and all settings are locked. This protects the group — no one participates without skin in the game.
+            A cycle can start once at least {MIN_CYCLE_MEMBERS} members have validated collateral and
+            every member currently in the circle is validated. Members added later join the next cycle,
+            not the one in progress.
           </AlertDescription>
         </Alert>
         <SectionCard title="Activation requirements">
           <div className="grid gap-3 md:grid-cols-2">
             {([
-              [`${acceptedMembers} / ${data.members.length} members accepted invite`, acceptedMembers === data.members.length],
+              [`${readyMembers} / ${MIN_CYCLE_MEMBERS} minimum members validated`, readyMembers >= MIN_CYCLE_MEMBERS],
               [`${postedCollateral} / ${data.members.length} collateral posted`, postedCollateral === data.members.length],
+              [`${acceptedMembers} / ${data.members.length} members accepted invite`, acceptedMembers === data.members.length],
               [`${acceptedAgreements} / ${data.members.length} agreements accepted`, acceptedAgreements === data.members.length],
               ["Payout order selected and locked", data.circle.payoutOrderLocked],
               ["Contribution amount and interval locked", data.circle.settingsLocked],
@@ -754,8 +764,11 @@ function CreatorDashboard({
 
           {!activationReady ? (
             <div className="mt-6 rounded-xl border border-[var(--color-warning-default)]/20 bg-[var(--color-warning-default)]/5 p-4 text-sm text-muted-foreground">
-              <p className="font-semibold text-[var(--color-text-default)]">Why can&apos;t I activate yet?</p>
+              <p className="font-semibold text-[var(--color-text-default)]">Why can&apos;t I start the cycle yet?</p>
               <ul className="mt-2 list-inside list-disc space-y-1">
+                {readyMembers < MIN_CYCLE_MEMBERS ? (
+                  <li>Need at least {MIN_CYCLE_MEMBERS} members with validated collateral — {readyMembers} ready so far.</li>
+                ) : null}
                 {postedCollateral < data.members.length ? (
                   <li>{data.members.length - postedCollateral} member{data.members.length - postedCollateral > 1 ? "s" : ""} still need{data.members.length - postedCollateral === 1 ? "s" : ""} to post collateral.</li>
                 ) : null}

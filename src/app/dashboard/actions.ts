@@ -13,6 +13,7 @@ import {
   validateBasics,
   validateCollateral,
   validateRoster,
+  MIN_CYCLE_MEMBERS,
 } from "@/lib/create/validation";
 
 export interface CreateBasicsInput {
@@ -58,8 +59,11 @@ export async function createCircleAction(
   if (!basicsValidation.valid || !rosterValidation.valid || !collateralValidation.valid) {
     return { success: false, error: "Circle details are invalid." };
   }
-  if (roster.length !== basics.memberCount || payoutOrder.length !== roster.length) {
-    return { success: false, error: "Roster and payout order must match the member count." };
+  if (roster.length < 1 || roster.length > basics.memberCount) {
+    return { success: false, error: "Roster must have between 1 and the configured member count." };
+  }
+  if (payoutOrder.length !== roster.length) {
+    return { success: false, error: "Payout order must match the roster." };
   }
   if (!creatorWalletAddress || !isValidStellarPublicKey(creatorWalletAddress)) {
     return { success: false, error: "Connect a valid Stellar testnet wallet before creating a circle." };
@@ -95,7 +99,7 @@ export async function createCircleAction(
       contribution_amount: basics.contributionAmount,
       contribution_asset: basics.contributionAsset,
       interval_seconds: basics.intervalSeconds,
-      member_count: actualMemberCount, // exact count matching the roster + creator
+      member_count: actualMemberCount, // current roster size (can grow up to the max)
       max_member_count: basics.memberCount,
       collateral_amount: collateral.collateralAmount,
       grace_period_hours: collateral.gracePeriodHours,
@@ -565,7 +569,8 @@ export async function activateCircleAction(circleId: string) {
     return { success: false, error: "Lock all settings, payout order, and rules before activation." };
   }
 
-  // 3. Check all members have accepted invite, posted collateral, and accepted agreement
+  // 3. A cycle starts only with members who are fully ready: invite accepted,
+  //    agreement accepted, and collateral validated/posted.
   const { data: members } = await supabase
     .from("circle_members")
     .select("id, invite_status, collateral_status, agreement_status")
@@ -575,28 +580,43 @@ export async function activateCircleAction(circleId: string) {
     return { success: false, error: "Circle has no members." };
   }
 
-  const allAccepted = members.every((m) => m.invite_status === "accepted");
-  if (!allAccepted) {
-    return { success: false, error: "All members must accept their invite before activation." };
+  const readyMembers = members.filter(
+    (m) =>
+      m.invite_status === "accepted" &&
+      m.agreement_status === "accepted" &&
+      m.collateral_status === "posted"
+  );
+
+  if (readyMembers.length < MIN_CYCLE_MEMBERS) {
+    return {
+      success: false,
+      error: `A cycle needs at least ${MIN_CYCLE_MEMBERS} members with validated collateral. Only ${readyMembers.length} ready so far.`,
+    };
   }
 
-  const allCollateralPosted = members.every((m) => m.collateral_status === "posted");
-  if (!allCollateralPosted) {
-    const pending = members.filter((m) => m.collateral_status !== "posted").length;
-    return { success: false, error: `${pending} member${pending > 1 ? "s have" : " has"} not posted collateral. All members must post collateral before activation.` };
+  // Every member currently present must be validated before the cycle starts.
+  const pendingMembers = members.filter(
+    (m) =>
+      m.invite_status !== "accepted" ||
+      m.agreement_status !== "accepted" ||
+      m.collateral_status !== "posted"
+  );
+  if (pendingMembers.length > 0) {
+    return {
+      success: false,
+      error: `${pendingMembers.length} member${pendingMembers.length > 1 ? "s have" : " has"} not validated collateral yet. All present members must be validated to start the cycle.`,
+    };
   }
 
-  const allAgreementsAccepted = members.every((m) => m.agreement_status === "accepted");
-  if (!allAgreementsAccepted) {
-    return { success: false, error: "All members must accept the circle agreement before activation." };
-  }
-
-  // 4. All gates pass — activate the circle
+  // 4. All gates pass — activate the circle. Rounds equal the participating
+  //    members captured at activation; members added later join a future cycle.
   const { error: updateError } = await supabase
     .from("circles")
     .update({
       status: "active",
       current_round: 1,
+      total_rounds: readyMembers.length,
+      member_count: readyMembers.length,
       start_date: new Date().toISOString(),
     })
     .eq("id", circleId);
