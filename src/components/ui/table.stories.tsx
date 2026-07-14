@@ -10,11 +10,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  mockAuditEvents,
-  mockContributions,
-  mockMembers,
-  mockPayouts,
-} from "@/lib/mocks";
+  auditEventsFixture,
+  contributionsFixture,
+  membersFixture,
+  payoutsFixture,
+} from "../../../.storybook/fixtures";
 
 const meta = {
   title: "UI/Table",
@@ -26,7 +26,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 function memberName(id: string | null) {
-  return mockMembers.find((member) => member.id === id)?.displayName ?? "Unknown";
+  return membersFixture.find((member) => member.id === id)?.displayName ?? "Unknown";
 }
 
 function statusBadge(status: string) {
@@ -60,7 +60,7 @@ export const Members: Story = {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {mockMembers.map((member) => (
+          {membersFixture.map((member) => (
             <TableRow key={member.id}>
               <TableCell className="font-semibold">{member.displayName}</TableCell>
               <TableCell className="font-mono text-sm">
@@ -92,7 +92,7 @@ export const Contributions: Story = {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {mockContributions.map((contribution) => (
+          {contributionsFixture.map((contribution) => (
             <TableRow key={contribution.id}>
               <TableCell>{memberName(contribution.memberId)}</TableCell>
               <TableCell>{contribution.amountDue} USDC</TableCell>
@@ -122,7 +122,7 @@ export const PayoutsAndAudit: Story = {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {mockPayouts.map((payout) => (
+          {payoutsFixture.map((payout) => (
             <TableRow key={payout.id}>
               <TableCell>Round {payout.roundNumber}</TableCell>
               <TableCell>{memberName(payout.recipientMemberId)}</TableCell>
@@ -143,7 +143,7 @@ export const PayoutsAndAudit: Story = {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {mockAuditEvents.map((event) => (
+          {auditEventsFixture.map((event) => (
             <TableRow key={event.id}>
               <TableCell>{event.eventType.replaceAll("_", " ")}</TableCell>
               <TableCell>{memberName(event.memberId)}</TableCell>

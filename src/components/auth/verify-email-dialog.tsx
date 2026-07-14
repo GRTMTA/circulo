@@ -1,12 +1,9 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useActionState } from "react";
+import { Mail } from "lucide-react";
 
-import {
-  resendVerificationAction,
-  verifyEmailCodeAction,
-} from "@/app/auth/actions";
+import { resendVerificationAction } from "@/app/auth/actions";
 import { idleState } from "@/lib/auth-shared";
 import { AuthStatus } from "@/components/auth/auth-status";
 import { Button } from "@/components/ui/button";
@@ -18,8 +15,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 
 interface VerifyEmailDialogProps {
   email: string;
@@ -32,66 +27,45 @@ export function VerifyEmailDialog({
   open,
   onOpenChange,
 }: VerifyEmailDialogProps) {
-  const router = useRouter();
-  const [verifyState, verifyFormAction, verifyPending] = useActionState(
-    verifyEmailCodeAction,
-    idleState
-  );
   const [resendState, resendFormAction, resendPending] = useActionState(
     resendVerificationAction,
     idleState
   );
 
-  useEffect(() => {
-    if (verifyState.status === "success" && verifyState.redirectTo) {
-      router.push(verifyState.redirectTo);
-      router.refresh();
-    }
-  }, [router, verifyState]);
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent showCloseButton={false}>
         <DialogHeader>
-          <DialogTitle>Verify your email</DialogTitle>
-          <DialogDescription>
-            Enter the code sent to {email}. If your Supabase project sends a
-            link instead, open the confirmation link and Circulo will finish
-            verification through the callback route.
+          <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-[var(--color-primary-muted)]">
+            <Mail className="size-6 text-[var(--color-primary-default)]" />
+          </div>
+          <DialogTitle className="text-center">Check your email</DialogTitle>
+          <DialogDescription className="text-center">
+            We sent a verification link to <strong>{email}</strong>. Click the
+            link in the email to verify your account and get started.
           </DialogDescription>
         </DialogHeader>
 
-        <form action={verifyFormAction} className="mt-6 grid gap-5">
-          <input type="hidden" name="email" value={email} />
-          <Field>
-            <FieldLabel htmlFor="verification-code">Verification code</FieldLabel>
-            <Input
-              id="verification-code"
-              name="code"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              placeholder="123456"
-              required
-            />
-            <FieldDescription>
-              Codes are usually 6 digits, depending on the Supabase email
-              template.
-            </FieldDescription>
-          </Field>
-          <AuthStatus state={verifyState} />
-          <Button type="submit" disabled={verifyPending}>
-            {verifyPending ? "Checking code..." : "Verify email"}
-          </Button>
-        </form>
+        <div className="mt-4 rounded-xl border border-border bg-[var(--color-background-muted)] p-4 text-sm text-muted-foreground">
+          <p className="font-medium text-[var(--color-text-default)]">
+            Didn&apos;t receive it?
+          </p>
+          <ul className="mt-2 list-inside list-disc space-y-1">
+            <li>Check your spam or junk folder</li>
+            <li>Make sure <strong>{email}</strong> is correct</li>
+            <li>Click below to resend</li>
+          </ul>
+        </div>
 
-        <DialogFooter>
+        <AuthStatus state={resendState} />
+
+        <DialogFooter className="mt-4 sm:justify-center">
           <form action={resendFormAction}>
             <input type="hidden" name="email" value={email} />
             <Button type="submit" variant="outline" disabled={resendPending}>
-              {resendPending ? "Resending..." : "Resend email"}
+              {resendPending ? "Resending..." : "Resend verification email"}
             </Button>
           </form>
-          <AuthStatus state={resendState} />
         </DialogFooter>
       </DialogContent>
     </Dialog>

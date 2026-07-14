@@ -1,9 +1,7 @@
 import "server-only";
 
-import { getIsSupabaseConfigured } from "@/lib/env";
 import { requireAuthenticatedUser } from "@/lib/auth";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { createCircleMock, createCirclesListMock } from "@/lib/mocks";
 import type {
   CircleEnrichedDTO,
   CircleListItem,
@@ -86,20 +84,6 @@ interface PayoutRow {
   tx_hash: string | null;
 }
 
-interface MemberRow {
-  id: string;
-  profile_id: string | null;
-  display_name: string;
-  wallet_address: string;
-  role: "creator" | "member";
-  invite_status: DashboardMember["inviteStatus"];
-  agreement_status: DashboardMember["agreementStatus"];
-  collateral_status: DashboardMember["collateralStatus"];
-  payment_status: DashboardMember["paymentStatus"];
-  payout_round: number;
-  restriction_status: DashboardMember["restrictionStatus"];
-}
-
 interface RoundRow {
   id: string;
   round_number: number;
@@ -108,25 +92,6 @@ interface RoundRow {
   expected_amount: number | string;
   collected_amount: number | string;
   status: DashboardRound["status"];
-}
-
-interface ContributionRow {
-  id: string;
-  round_id: string;
-  member_id: string;
-  amount_due: number | string;
-  status: DashboardContribution["status"];
-  tx_hash: string | null;
-  paid_at: string | null;
-}
-
-interface PayoutRow {
-  id: string;
-  round_number: number;
-  recipient_member_id: string | null;
-  expected_payout_at: string | null;
-  status: DashboardPayout["status"];
-  tx_hash: string | null;
 }
 
 interface AuditEventRow {
@@ -277,31 +242,31 @@ async function fetchCircleBundle(circleId: string) {
       .select("*")
       .eq("circle_id", circleId)
       .order("payout_round", { ascending: true })
-      .returns<MemberRow[]>(),
+      .overrideTypes<MemberRow[], { merge: false }>(),
     supabase
       .from("circle_rounds")
       .select("*")
       .eq("circle_id", circleId)
       .order("round_number", { ascending: true })
-      .returns<RoundRow[]>(),
+      .overrideTypes<RoundRow[], { merge: false }>(),
     supabase
       .from("circle_contributions")
       .select("*")
       .eq("circle_id", circleId)
-      .returns<ContributionRow[]>(),
+      .overrideTypes<ContributionRow[], { merge: false }>(),
     supabase
       .from("payout_schedule")
       .select("*")
       .eq("circle_id", circleId)
       .order("round_number", { ascending: true })
-      .returns<PayoutRow[]>(),
+      .overrideTypes<PayoutRow[], { merge: false }>(),
     supabase
       .from("audit_events")
       .select("*")
       .eq("circle_id", circleId)
       .order("created_at", { ascending: false })
       .limit(20)
-      .returns<AuditEventRow[]>(),
+      .overrideTypes<AuditEventRow[], { merge: false }>(),
   ]);
 
   if (circleResult.error || !circleResult.data) {
@@ -362,8 +327,8 @@ function mapMemberCircleListItem(row: MemberCircleListRow): CircleListItem | nul
 export async function getDashboardDTO(): Promise<CirclesDTO> {
   const authContext = await requireAuthenticatedUser("/dashboard");
 
-  if (!getIsSupabaseConfigured() || !authContext.configured || !authContext.user) {
-    return createCirclesListMock();
+  if (!authContext.configured || !authContext.user) {
+    return [];
   }
 
   const supabase = await createServerSupabaseClient();
@@ -373,14 +338,14 @@ export async function getDashboardDTO(): Promise<CirclesDTO> {
     .select("*")
     .eq("creator_id", authContext.user.id)
       .order("created_at", { ascending: false })
-      .returns<CircleRow[]>(),
+      .overrideTypes<CircleRow[], { merge: false }>(),
     supabase
     .from("circle_members")
       .select("payment_status,payout_round,circles(*)")
     .eq("profile_id", authContext.user.id)
     .neq("role", "creator")
       .order("created_at", { ascending: false })
-      .returns<MemberCircleListRow[]>(),
+      .overrideTypes<MemberCircleListRow[], { merge: false }>(),
   ]);
 
   return [
@@ -390,13 +355,9 @@ export async function getDashboardDTO(): Promise<CirclesDTO> {
 }
 
 export async function getCircleDTO(circleId: string): Promise<CircleEnrichedDTO | null> {
-  if (circleId.startsWith("circle-")) {
-    return createCircleMock(circleId);
-  }
-
   const authContext = await requireAuthenticatedUser(`/dashboard/${circleId}`);
 
-  if (!getIsSupabaseConfigured() || !authContext.configured || !authContext.user) {
+  if (!authContext.configured || !authContext.user) {
     return null;
   }
 
@@ -434,7 +395,7 @@ export async function getCircleDTO(circleId: string): Promise<CircleEnrichedDTO 
     .eq("profile_id", authContext.user.id)
     .order("created_at", { ascending: false })
     .limit(12)
-    .returns<NotificationRow[]>();
+    .overrideTypes<NotificationRow[], { merge: false }>();
 
   return {
     role: "member",
