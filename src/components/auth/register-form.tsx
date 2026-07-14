@@ -48,6 +48,7 @@ export function RegisterForm() {
                 name="givenName"
                 autoComplete="given-name"
                 placeholder="e.g. John"
+                className="placeholder:opacity-50"
                 required
               />
             </Field>
@@ -58,6 +59,7 @@ export function RegisterForm() {
                 name="lastName"
                 autoComplete="family-name"
                 placeholder="e.g. Doe"
+                className="placeholder:opacity-50"
                 required
               />
             </Field>
@@ -71,6 +73,7 @@ export function RegisterForm() {
               type="email"
               autoComplete="email"
               placeholder="member@example.com"
+              className="placeholder:opacity-50"
               required
             />
           </Field>
@@ -82,6 +85,7 @@ export function RegisterForm() {
               name="password"
               autoComplete="new-password"
               placeholder="Choose a strong password"
+              className="placeholder:opacity-50"
               minLength={8}
               required
             />
@@ -96,6 +100,7 @@ export function RegisterForm() {
               name="confirmPassword"
               autoComplete="new-password"
               placeholder="Repeat your password"
+              className="placeholder:opacity-50"
               minLength={8}
               required
             />
