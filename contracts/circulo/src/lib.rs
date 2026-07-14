@@ -19,6 +19,12 @@ impl CirculoContract {
         interval_seconds: u64,
         members: Vec<Address>,
     ) {
+        if env.storage().instance().has(&symbol_short!("creator")) {
+            panic!("already initialized");
+        }
+        if contribution_amount <= 0 || collateral_amount <= 0 || interval_seconds == 0 {
+            panic!("invalid configuration");
+        }
         creator.require_auth();
 
         env.storage().instance().set(&symbol_short!("creator"), &creator);
@@ -62,7 +68,28 @@ impl CirculoContract {
     /// Pulls the contribution amount from the member's wallet address directly
     /// into the smart contract's unique address acting as the non-custodial escrow vault.
     pub fn contribute(env: Env, member: Address, token_id: Address, amount: i128) {
-        // Enforce cryptographic authorization on the executing member
+        if amount <= 0 {
+            panic!("amount must be positive");
+        }
+
+        let status: Symbol = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("status"))
+            .unwrap_or(symbol_short!("draft"));
+        if status != symbol_short!("draft") && status != symbol_short!("active") {
+            panic!("circle does not accept contributions");
+        }
+
+        let members: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("members"))
+            .unwrap();
+        if !members.contains(&member) {
+            panic!("not a circle member");
+        }
+
         member.require_auth();
 
         // Create standard token client for transfer execution
@@ -74,7 +101,32 @@ impl CirculoContract {
 
     /// Moves the accumulated round pool amount straight from the smart contract escrow balance
     /// directly to the designated round recipient address in a single atomic operation.
-    pub fn execute_payout(env: Env, token_id: Address, recipient: Address, total_pool: i128) {
+    pub fn execute_payout(
+        env: Env,
+        admin: Address,
+        token_id: Address,
+        recipient: Address,
+        total_pool: i128,
+    ) {
+        if total_pool <= 0 {
+            panic!("amount must be positive");
+        }
+
+        let status: Symbol = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("status"))
+            .unwrap_or(symbol_short!("draft"));
+        if status != symbol_short!("active") {
+            panic!("circle is not active");
+        }
+
+        let creator: Address = env.storage().instance().get(&symbol_short!("creator")).unwrap();
+        admin.require_auth();
+        if admin != creator {
+            panic!("only creator can execute payout");
+        }
+
         // Create standard token client for transfer execution
         let token_client = token::Client::new(&env, &token_id);
 
@@ -131,15 +183,24 @@ mod test {
         assert_eq!(token.balance(&member), 1000);
 
         env.mock_all_auths();
+        client.initialize(
+            &creator,
+            &600,
+            &600,
+            &86_400,
+            &vec![&env, creator.clone(), member.clone()],
+        );
 
-        // Member contributes to the contract
+        // Member posts funds while the circle is in draft.
         client.contribute(&member, &token_address, &600);
         assert_eq!(token.balance(&member), 400);
         assert_eq!(token.balance(&contract_id), 600);
 
+        client.activate(&creator);
+
         // Execute payout to designated recipient
         let recipient = Address::generate(&env);
-        client.execute_payout(&token_address, &recipient, &600);
+        client.execute_payout(&creator, &token_address, &recipient, &600);
         assert_eq!(token.balance(&contract_id), 0);
         assert_eq!(token.balance(&recipient), 600);
     }

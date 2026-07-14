@@ -1,13 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/nextjs";
 
+import { createMembersFixture } from "../../../.storybook/fixtures";
 import { PayoutOrderEditor } from "@/components/payout/payout-order-editor";
-import { createMockMembers } from "@/lib/mocks";
 
 const meta = {
   title: "Payout/Payout Order Editor",
   component: PayoutOrderEditor,
   args: {
-    members: createMockMembers(),
+    members: createMembersFixture(),
     locked: false,
   },
 } satisfies Meta<typeof PayoutOrderEditor>;

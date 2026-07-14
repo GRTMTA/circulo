@@ -1,11 +1,10 @@
 import { StellarWalletsKit, Networks, SwkAppDarkTheme } from "@creit.tech/stellar-wallets-kit";
 import { defaultModules } from "@creit.tech/stellar-wallets-kit/modules/utils";
 
-// Horizon RPC endpoint for the Stellar Testnet
-export const HORIZON_RPC_URL = "https://horizon-testnet.stellar.org";
+import { env, STELLAR_TESTNET } from "@/lib/env";
 
-// Friendbot URL for requesting test tokens
-export const FRIENDBOT_URL = "https://friendbot.stellar.org";
+export const HORIZON_RPC_URL = env.horizonUrl;
+export const FRIENDBOT_URL = STELLAR_TESTNET.friendbotUrl;
 
 // Initialize StellarWalletsKit statically on the client side
 if (typeof window !== "undefined") {
