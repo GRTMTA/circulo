@@ -18,7 +18,7 @@ import type {
   CreatePayoutOrderItem,
   CreateRosterMember,
 } from "@/lib/create/types";
-import { createCircleAction } from "@/app/dashboard/actions";
+import { createCircleAction, logCircleInitializationAction } from "@/app/dashboard/actions";
 import {
   validateBasics,
   validateCollateral,
@@ -26,6 +26,8 @@ import {
 } from "@/lib/create/validation";
 import { StellarWalletsKit, KitEventType } from "@/config/stellar";
 import type { KitEventStateUpdated } from "@creit.tech/stellar-wallets-kit";
+import { env } from "@/lib/env";
+import { triggerInitializeOnChain, submitSignedTransaction } from "@/services/contractService";
 
 const steps = ["Basics", "Roster", "Collateral", "Payout Order", "Review"];
 
@@ -99,6 +101,16 @@ export function CreateWizardShell({ defaultCreatorName }: { defaultCreatorName?:
       return [creator, ...withoutCreator];
     });
   }, [creatorAddress, defaultCreatorName]);
+
+  // Synchronize default collateralAmount to contributionAmount if it is 0
+  useEffect(() => {
+    if (collateral.collateralAmount === 0 && basics.contributionAmount > 0) {
+      setCollateral((prev) => ({
+        ...prev,
+        collateralAmount: basics.contributionAmount,
+      }));
+    }
+  }, [basics.contributionAmount, collateral.collateralAmount]);
 
   // Synchronize payoutOrder state when the roster changes
   useEffect(() => {
@@ -189,7 +201,30 @@ export function CreateWizardShell({ defaultCreatorName }: { defaultCreatorName?:
     try {
       const res = await createCircleAction(basics, roster, collateral, payoutOrder, creatorAddress);
       if (res.success && res.circleId) {
-        toast.success("Circle draft created successfully");
+        toast.info("Preparing on-chain contract initialization. Please sign the transaction in your wallet...");
+        
+        const memberAddresses = roster.map((m) => m.walletAddress);
+        const { txXdr } = await triggerInitializeOnChain(
+          creatorAddress,
+          env.contractId,
+          res.circleId,
+          basics.contributionAmount,
+          collateral.collateralAmount,
+          basics.intervalSeconds,
+          memberAddresses
+        );
+
+        const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
+          networkPassphrase: env.sorobanNetworkPassphrase,
+          address: creatorAddress,
+        });
+
+        toast.info("Submitting initialization transaction to Stellar Testnet...");
+        const { hash: initTxHash } = await submitSignedTransaction(signedTxXdr);
+
+        await logCircleInitializationAction(res.circleId, initTxHash);
+        
+        toast.success("Circle created and initialized on-chain successfully!");
         router.push(`/dashboard/${res.circleId}`);
         router.refresh();
       } else {
@@ -252,7 +287,7 @@ export function CreateWizardShell({ defaultCreatorName }: { defaultCreatorName?:
             memberCount={basics.memberCount}
             contributionAmount={basics.contributionAmount}
             contributionAsset={basics.contributionAsset}
-            errors={attempted ? stepErrors : {}}
+            fieldErrors={attempted ? stepErrors : {}}
           />
         ) : null}
         {step === 3 ? (

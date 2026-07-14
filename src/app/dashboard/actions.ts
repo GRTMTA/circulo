@@ -511,6 +511,7 @@ export async function acceptAgreementAction(
       txHash,
       member.wallet_address,
       env.contractId,
+      circleId,
       tokenContractId,
       amount.toString()
     );
@@ -634,6 +635,29 @@ export async function activateCircleAction(circleId: string) {
 
   revalidatePath(`/dashboard/${circleId}`);
   revalidatePath("/dashboard", "layout");
+
+  return { success: true };
+}
+
+export async function logCircleInitializationAction(circleId: string, txHash: string) {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const supabase = await createServerSupabaseClient();
+
+  const { error } = await supabase.from("audit_events").insert({
+    circle_id: circleId,
+    event_type: "initialize",
+    tx_hash: txHash,
+    metadata: { initialized_by: authContext.user.id },
+  });
+
+  if (error) {
+    console.error("Initialization log error:", error);
+    return { success: false, error: error.message };
+  }
 
   return { success: true };
 }

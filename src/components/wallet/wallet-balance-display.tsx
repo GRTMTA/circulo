@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { CircleDollarSign, Loader2, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StellarWalletsKit, KitEventType } from "@/config/stellar";
+import { StellarWalletsKit, KitEventType, HORIZON_RPC_URL } from "@/config/stellar";
 import type { KitEventStateUpdated } from "@creit.tech/stellar-wallets-kit";
 
 export function WalletBalanceDisplay({ asset }: { asset: string }) {

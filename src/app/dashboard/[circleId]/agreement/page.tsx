@@ -4,6 +4,7 @@ import { MemberAgreementScreen } from "@/components/agreement/member-agreement-s
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { getCircleDTO } from "@/lib/dashboard/queries";
 import { AGREEMENT_RULES } from "@/lib/policies";
+import { calculateCollateral } from "@/lib/create/validation";
 
 export default async function AgreementPage({
   params,
@@ -14,6 +15,12 @@ export default async function AgreementPage({
   const data = await getCircleDTO(circleId);
 
   if (!data || data.role !== "member") notFound();
+
+  const dynamicCollateralAmount = calculateCollateral(
+    data.circle.memberCount,
+    data.circle.contributionAmount,
+    data.currentMember.payoutRound
+  );
 
   return (
     <DashboardShell
@@ -29,7 +36,7 @@ export default async function AgreementPage({
         circleId={circleId}
         circleName={data.circle.name}
         rules={[...AGREEMENT_RULES]}
-        collateralAmount={data.circle.collateralAmount}
+        collateralAmount={dynamicCollateralAmount}
         contributionAsset={data.circle.contributionAsset}
         memberWalletAddress={data.currentMember.walletAddress}
         accepted={data.currentMember.agreementStatus === "accepted"}

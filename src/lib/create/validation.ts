@@ -125,12 +125,24 @@ export function validateRosterEntry(
   return errors;
 }
 
+/**
+ * Calculates required collateral dynamically based on the Paluwagan formula:
+ * required_collateral(k) = (N - k) * A
+ * where N = total members, k = 1-indexed payout round slot, A = contribution amount.
+ */
+export function calculateCollateral(
+  numMembers: number,
+  contributionAmount: number,
+  payoutRound: number
+): number {
+  if (payoutRound < 1 || payoutRound > numMembers) {
+    return 0;
+  }
+  return (numMembers - payoutRound) * contributionAmount;
+}
+
 export function validateCollateral(values: CreateCollateralState): ValidationResult {
   const errors: Record<string, string> = {};
-
-  if (!Number.isFinite(values.collateralAmount) || values.collateralAmount <= 0) {
-    errors.collateralAmount = "Collateral must be greater than zero.";
-  }
 
   if (!Number.isFinite(values.gracePeriodHours) || values.gracePeriodHours < 0) {
     errors.gracePeriodHours = "Grace period cannot be negative.";

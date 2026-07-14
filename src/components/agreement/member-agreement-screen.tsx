@@ -12,7 +12,7 @@ import { StellarWalletsKit } from "@/config/stellar";
 import { env, getTokenContractId } from "@/lib/env";
 import {
   submitSignedTransaction,
-  triggerContributeOnChain,
+  triggerPostCollateralOnChain,
 } from "@/services/contractService";
 
 export function MemberAgreementScreen({
@@ -50,12 +50,11 @@ export function MemberAgreementScreen({
       }
 
       const tokenContractId = getTokenContractId(contributionAsset);
-      const amount = BigInt(Math.round(collateralAmount * 10_000_000));
-      const { txXdr } = await triggerContributeOnChain(
+      const { txXdr } = await triggerPostCollateralOnChain(
         memberAddress,
         env.contractId,
-        tokenContractId,
-        amount.toString()
+        circleId,
+        tokenContractId
       );
       const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
         address: memberAddress,
@@ -69,8 +68,9 @@ export function MemberAgreementScreen({
       toast.success("Agreement accepted and collateral posted on testnet.");
       router.push(`/dashboard/${circleId}`);
       router.refresh();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to join circle.");
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      toast.error(error.message || "Failed to join circle.");
     } finally {
       setSubmitting(false);
     }

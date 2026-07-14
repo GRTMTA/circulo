@@ -29,8 +29,17 @@ function assertContractId(address: string, label: string) {
 
 function assertPositiveAmount(amount: number | string) {
   const value = BigInt(amount);
-  if (value <= 0n) throw new Error("Transaction amount must be greater than zero.");
+  if (value <= BigInt(0)) throw new Error("Transaction amount must be greater than zero.");
   return value;
+}
+
+export function uuidToU128(uuid: string): bigint {
+  const hex = uuid.replace(/-/g, "");
+  return BigInt("0x" + hex);
+}
+
+export function circleIdToScVal(circleId: string): xdr.ScVal {
+  return nativeToScVal(uuidToU128(circleId), { type: "u128" });
 }
 
 async function buildPreparedTransaction(
@@ -54,11 +63,70 @@ async function buildPreparedTransaction(
   return rpcServer.prepareTransaction(transaction);
 }
 
+export async function triggerInitializeOnChain(
+  creatorAddress: string,
+  contractAddress: string,
+  circleId: string,
+  contributionAmount: number | string,
+  collateralAmount: number | string,
+  intervalSeconds: number | string,
+  members: string[]
+): Promise<{ txXdr: string }> {
+  assertAccountId(creatorAddress, "Creator address");
+  assertContractId(contractAddress, "Circulo contract ID");
+  members.forEach((m) => assertAccountId(m, "Member address"));
+
+  const contract = new Contract(contractAddress);
+  const operation = contract.call(
+    "initialize",
+    circleIdToScVal(circleId),
+    Address.fromString(creatorAddress).toScVal(),
+    nativeToScVal(assertPositiveAmount(contributionAmount), { type: "i128" }),
+    nativeToScVal(assertPositiveAmount(collateralAmount), { type: "i128" }),
+    nativeToScVal(BigInt(intervalSeconds), { type: "u64" }),
+    nativeToScVal(
+      members.map((m) => Address.fromString(m).toScVal())
+    )
+  );
+
+  const transaction = await buildPreparedTransaction(
+    creatorAddress,
+    contractAddress,
+    operation
+  );
+
+  return { txXdr: transaction.toXDR() };
+}
+
+export async function triggerActivateOnChain(
+  creatorAddress: string,
+  contractAddress: string,
+  circleId: string
+): Promise<{ txXdr: string }> {
+  assertAccountId(creatorAddress, "Creator address");
+  assertContractId(contractAddress, "Circulo contract ID");
+
+  const contract = new Contract(contractAddress);
+  const operation = contract.call(
+    "activate",
+    circleIdToScVal(circleId),
+    Address.fromString(creatorAddress).toScVal()
+  );
+
+  const transaction = await buildPreparedTransaction(
+    creatorAddress,
+    contractAddress,
+    operation
+  );
+
+  return { txXdr: transaction.toXDR() };
+}
+
 export async function triggerContributeOnChain(
   userAddress: string,
   contractAddress: string,
-  tokenContractId: string,
-  amount: number | string
+  circleId: string,
+  tokenContractId: string
 ): Promise<{ txXdr: string }> {
   assertAccountId(userAddress, "Member address");
   assertContractId(tokenContractId, "Token contract ID");
@@ -66,9 +134,34 @@ export async function triggerContributeOnChain(
   const contract = new Contract(contractAddress);
   const operation = contract.call(
     "contribute",
-    nativeToScVal(userAddress, { type: "address" }),
-    nativeToScVal(tokenContractId, { type: "address" }),
-    nativeToScVal(assertPositiveAmount(amount), { type: "i128" })
+    circleIdToScVal(circleId),
+    Address.fromString(userAddress).toScVal(),
+    Address.fromString(tokenContractId).toScVal()
+  );
+  const transaction = await buildPreparedTransaction(
+    userAddress,
+    contractAddress,
+    operation
+  );
+
+  return { txXdr: transaction.toXDR() };
+}
+
+export async function triggerPostCollateralOnChain(
+  userAddress: string,
+  contractAddress: string,
+  circleId: string,
+  tokenContractId: string
+): Promise<{ txXdr: string }> {
+  assertAccountId(userAddress, "Member address");
+  assertContractId(tokenContractId, "Token contract ID");
+
+  const contract = new Contract(contractAddress);
+  const operation = contract.call(
+    "post_collateral",
+    circleIdToScVal(circleId),
+    Address.fromString(userAddress).toScVal(),
+    Address.fromString(tokenContractId).toScVal()
   );
   const transaction = await buildPreparedTransaction(
     userAddress,
@@ -82,9 +175,9 @@ export async function triggerContributeOnChain(
 export async function triggerExecutePayoutOnChain(
   adminAddress: string,
   contractAddress: string,
+  circleId: string,
   tokenContractId: string,
-  recipientAddress: string,
-  totalPool: number | string
+  recipientAddress: string
 ): Promise<{ txXdr: string }> {
   assertAccountId(adminAddress, "Administrator address");
   assertAccountId(recipientAddress, "Recipient address");
@@ -93,10 +186,10 @@ export async function triggerExecutePayoutOnChain(
   const contract = new Contract(contractAddress);
   const operation = contract.call(
     "execute_payout",
-    nativeToScVal(adminAddress, { type: "address" }),
-    nativeToScVal(tokenContractId, { type: "address" }),
-    nativeToScVal(recipientAddress, { type: "address" }),
-    nativeToScVal(assertPositiveAmount(totalPool), { type: "i128" })
+    circleIdToScVal(circleId),
+    Address.fromString(adminAddress).toScVal(),
+    Address.fromString(tokenContractId).toScVal(),
+    Address.fromString(recipientAddress).toScVal()
   );
   const transaction = await buildPreparedTransaction(
     adminAddress,
@@ -128,13 +221,18 @@ export async function submitSignedTransaction(txXdr: string) {
 
   return { hash: submission.hash };
 }
+
 export async function verifyContributeTransaction(
   txHash: string,
   memberAddress: string,
   contractAddress: string,
+  circleId: string,
   tokenContractId: string,
-  amount: number | string
+  amount?: number | string
 ) {
+  if (amount) {
+    console.log("Verifying collateral transaction with expected amount:", amount);
+  }
   assertTestnetConfig();
   assertAccountId(memberAddress, "Member address");
   assertContractId(contractAddress, "Circulo contract ID");
@@ -174,19 +272,21 @@ export async function verifyContributeTransaction(
 
   const invocation = hostFunction.invokeContract();
   const args = invocation.args();
-  const expectedAmount = assertPositiveAmount(amount);
   const invokedContract = Address.fromScAddress(invocation.contractAddress()).toString();
   const invokedFunction = invocation.functionName().toString();
-  const invokedMember = Address.fromScVal(args[0]).toString();
-  const invokedToken = Address.fromScVal(args[1]).toString();
-  const invokedAmount = BigInt(scValToNative(args[2]));
+
+  const invokedCircle = BigInt(scValToNative(args[0]));
+  const invokedMember = Address.fromScVal(args[1]).toString();
+  const invokedToken = Address.fromScVal(args[2]).toString();
+
+  const expectedCircle = uuidToU128(circleId);
 
   if (
     invokedContract !== contractAddress ||
-    invokedFunction !== "contribute" ||
+    (invokedFunction !== "post_collateral" && invokedFunction !== "contribute") ||
+    invokedCircle !== expectedCircle ||
     invokedMember !== memberAddress ||
-    invokedToken !== tokenContractId ||
-    invokedAmount !== expectedAmount
+    invokedToken !== tokenContractId
   ) {
     throw new Error("The collateral transaction does not match this agreement.");
   }
