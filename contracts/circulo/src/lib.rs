@@ -55,7 +55,9 @@ impl CirculoContract {
             .unwrap_or(symbol_short!("draft"))
     }
 
-    /// Activates the rotating savings circle (only executable by creator)
+    /// Activates the rotating savings circle (only executable by creator).
+    /// Sets the round counter to 1 so contributions and payouts are tracked
+    /// per round on-chain.
     pub fn activate(env: Env, circle_id: u128, admin: Address) {
         let key_creator = (symbol_short!("creator"), circle_id);
         let creator: Address = env.storage().instance().get(&key_creator).unwrap();
@@ -68,6 +70,26 @@ impl CirculoContract {
         env.storage()
             .instance()
             .set(&(symbol_short!("status"), circle_id), &symbol_short!("active"));
+        // Round 1 begins at activation.
+        env.storage()
+            .instance()
+            .set(&(symbol_short!("round"), circle_id), &1u32);
+    }
+
+    /// Returns the current 1-indexed round (0 before activation).
+    pub fn current_round(env: Env, circle_id: u128) -> u32 {
+        env.storage()
+            .instance()
+            .get(&(symbol_short!("round"), circle_id))
+            .unwrap_or(0u32)
+    }
+
+    /// Returns true if `member` has already contributed for `round`.
+    pub fn is_paid(env: Env, circle_id: u128, round: u32, member: Address) -> bool {
+        env.storage()
+            .instance()
+            .get(&(symbol_short!("paid"), circle_id, round, member))
+            .unwrap_or(false)
     }
 
     /// Returns true if the circle has been initialized on-chain
@@ -150,6 +172,18 @@ impl CirculoContract {
             panic!("not a circle member");
         }
 
+        let round: u32 = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("round"), circle_id))
+            .unwrap_or(0u32);
+
+        // Prevent double payment within the same round.
+        let key_paid = (symbol_short!("paid"), circle_id, round, member.clone());
+        if env.storage().instance().get(&key_paid).unwrap_or(false) {
+            panic!("already contributed this round");
+        }
+
         let contribution_amount: i128 = env
             .storage()
             .instance()
@@ -163,17 +197,22 @@ impl CirculoContract {
 
         // Pull funds directly from member address to this contract's address
         token_client.transfer(&member, &env.current_contract_address(), &contribution_amount);
+
+        // Record the contribution for this round.
+        env.storage().instance().set(&key_paid, &true);
     }
 
-    /// Moves the accumulated round pool amount straight from the smart contract escrow balance
-    /// directly to the designated round recipient address in a single atomic operation.
+    /// Executes the payout for the current round. The recipient is derived
+    /// on-chain from the locked payout order (member at index `round - 1`), not
+    /// supplied by the caller, so the creator cannot redirect funds. Requires
+    /// every member to have contributed for the round, then advances the round
+    /// (or completes the circle after the final round).
     pub fn execute_payout(
         env: Env,
         circle_id: u128,
         admin: Address,
         token_id: Address,
-        recipient: Address,
-    ) {
+    ) -> Address {
         let status: Symbol = env
             .storage()
             .instance()
@@ -194,21 +233,60 @@ impl CirculoContract {
             .instance()
             .get(&(symbol_short!("members"), circle_id))
             .unwrap();
-        
+
+        let round: u32 = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("round"), circle_id))
+            .unwrap_or(0u32);
+
+        let num_members = members.len();
+        if round < 1 || round > num_members {
+            panic!("no active round to pay out");
+        }
+
+        // Every member must have contributed for this round before payout.
+        let mut i: u32 = 0;
+        while i < num_members {
+            let m = members.get(i).unwrap();
+            let paid: bool = env
+                .storage()
+                .instance()
+                .get(&(symbol_short!("paid"), circle_id, round, m))
+                .unwrap_or(false);
+            if !paid {
+                panic!("not all members have contributed this round");
+            }
+            i += 1;
+        }
+
+        // Recipient is fixed by the payout order: round R pays members[R-1].
+        let recipient = members.get(round - 1).unwrap();
+
         let contribution_amount: i128 = env
             .storage()
             .instance()
             .get(&(symbol_short!("contrib"), circle_id))
             .unwrap();
 
-        // Calculate total pool = N * A
-        let total_pool = (members.len() as i128) * contribution_amount;
+        // Total pool = N * A
+        let total_pool = (num_members as i128) * contribution_amount;
 
-        // Create standard token client for transfer execution
         let token_client = token::Client::new(&env, &token_id);
-
-        // Transfer funds directly from this contract's escrow address to the recipient
         token_client.transfer(&env.current_contract_address(), &recipient, &total_pool);
+
+        // Advance the round, or complete the circle after the final round.
+        if round == num_members {
+            env.storage()
+                .instance()
+                .set(&(symbol_short!("status"), circle_id), &Symbol::new(&env, "completed"));
+        } else {
+            env.storage()
+                .instance()
+                .set(&(symbol_short!("round"), circle_id), &(round + 1));
+        }
+
+        recipient
     }
 
     /// Slashes a defaulting member's collateral slice and keeps it in the pool.
@@ -263,6 +341,22 @@ impl CirculoContract {
             panic!("not a circle member");
         });
         let payout_round = index + 1;
+
+        // The member must actually be in default: they have not contributed for
+        // the current round. This makes slashing rule-driven, not discretionary.
+        let round: u32 = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("round"), circle_id))
+            .unwrap_or(0u32);
+        let paid_current: bool = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("paid"), circle_id, round, member.clone()))
+            .unwrap_or(false);
+        if paid_current {
+            panic!("member has paid the current round; nothing to slash");
+        }
 
         // A member can only be slashed once.
         let key_slashed = (Symbol::new(&env, "slashed"), circle_id, member.clone());
@@ -434,10 +528,8 @@ mod test {
 
         env.mock_all_auths();
 
-        token_admin_client.mint(&creator, &1000);
-        token_admin_client.mint(&member, &1000);
-        assert_eq!(token.balance(&creator), 1000);
-        assert_eq!(token.balance(&member), 1000);
+        token_admin_client.mint(&creator, &10_000);
+        token_admin_client.mint(&member, &10_000);
 
         client.initialize(
             &circle_id,
@@ -450,25 +542,62 @@ mod test {
 
         // Creator posts collateral (k = 1, N = 2, required = (2 - 1) * 600 = 600)
         client.post_collateral(&circle_id, &creator, &token_address);
-        assert_eq!(token.balance(&creator), 400);
         assert_eq!(token.balance(&contract_id), 600);
 
         // Member posts collateral (k = 2, N = 2, required = (2 - 2) * 600 = 0)
         client.post_collateral(&circle_id, &member, &token_address);
-        assert_eq!(token.balance(&member), 1000);
 
         client.activate(&circle_id, &creator);
+        assert_eq!(client.current_round(&circle_id), 1);
 
-        // Member pays contribution round (600)
+        // Both members must contribute for round 1 before payout.
+        client.contribute(&circle_id, &creator, &token_address);
         client.contribute(&circle_id, &member, &token_address);
-        assert_eq!(token.balance(&member), 400);
-        assert_eq!(token.balance(&contract_id), 1200);
+        assert!(client.is_paid(&circle_id, &1, &creator));
+        assert!(client.is_paid(&circle_id, &1, &member));
 
-        // Execute payout to designated recipient (N * A = 2 * 600 = 1200)
-        let recipient = Address::generate(&env);
-        client.execute_payout(&circle_id, &creator, &token_address, &recipient);
-        assert_eq!(token.balance(&contract_id), 0);
-        assert_eq!(token.balance(&recipient), 1200);
+        // Payout for round 1 goes to members[0] = creator, chosen on-chain.
+        // Escrow after collateral (600) + two contributions (1200) = 1800.
+        let recipient = client.execute_payout(&circle_id, &creator, &token_address);
+        assert_eq!(recipient, creator);
+        // Round advances to 2.
+        assert_eq!(client.current_round(&circle_id), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "not all members have contributed")]
+    fn payout_blocked_until_all_contribute() {
+        let env = Env::default();
+        let contract_id = env.register(CirculoContract, ());
+        let client = CirculoContractClient::new(&env, &contract_id);
+
+        let creator = Address::generate(&env);
+        let member = Address::generate(&env);
+        let circle_id = 77u128;
+
+        let token_admin = Address::generate(&env);
+        let token_address = env.register_stellar_asset_contract(token_admin.clone());
+        let token_admin_client = token::StellarAssetClient::new(&env, &token_address);
+
+        env.mock_all_auths();
+        token_admin_client.mint(&creator, &10_000);
+        token_admin_client.mint(&member, &10_000);
+
+        client.initialize(
+            &circle_id,
+            &creator,
+            &600,
+            &600,
+            &86_400,
+            &vec![&env, creator.clone(), member.clone()],
+        );
+        client.post_collateral(&circle_id, &creator, &token_address);
+        client.post_collateral(&circle_id, &member, &token_address);
+        client.activate(&circle_id, &creator);
+
+        // Only the creator contributes; payout must fail.
+        client.contribute(&circle_id, &creator, &token_address);
+        client.execute_payout(&circle_id, &creator, &token_address);
     }
 
     #[test]

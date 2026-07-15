@@ -226,11 +226,11 @@ export async function triggerExecutePayoutOnChain(
   adminAddress: string,
   contractAddress: string,
   circleId: string,
-  tokenContractId: string,
-  recipientAddress: string
+  tokenContractId: string
 ): Promise<{ txXdr: string }> {
+  // The recipient is chosen on-chain from the locked payout order for the
+  // current round, so it is intentionally not passed by the caller.
   assertAccountId(adminAddress, "Administrator address");
-  assertAccountId(recipientAddress, "Recipient address");
   assertContractId(tokenContractId, "Token contract ID");
 
   const contract = new Contract(contractAddress);
@@ -238,8 +238,7 @@ export async function triggerExecutePayoutOnChain(
     "execute_payout",
     circleIdToScVal(circleId),
     Address.fromString(adminAddress).toScVal(),
-    Address.fromString(tokenContractId).toScVal(),
-    Address.fromString(recipientAddress).toScVal()
+    Address.fromString(tokenContractId).toScVal()
   );
   const transaction = await buildPreparedTransaction(
     adminAddress,
