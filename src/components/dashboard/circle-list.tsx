@@ -1,149 +1,115 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarDays, PlusCircle, ShieldCheck, UsersRound } from "lucide-react";
+import { Activity, CircleAlert, CircleCheck, CircleDashed, CircleDollarSign, Plus, WalletCards } from "lucide-react";
+import { useMemo, useState } from "react";
 
-import { DashboardShell } from "@/components/dashboard/dashboard-shell";
-import { Badge } from "@/components/ui/badge";
+import { CircleCard } from "@/components/dashboard/circle-card";
+import { CircleFilterBar, type CircleFilter, type CircleSort } from "@/components/dashboard/circle-filter-bar";
+import { CircleSummaryCard } from "@/components/dashboard/circle-summary-card";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { EmptyState } from "@/components/ui/empty-state";
 import type { CirclesDTO, CircleListItem } from "@/lib/dashboard/types";
 
-function titleCase(value: string) {
-  return value
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+function isDueSoon(circle: CircleListItem) {
+  if (["due_soon", "due_now", "late", "missed"].includes(circle.myPaymentStatus ?? "")) return true;
+  if (!circle.nextDueAt || circle.status !== "active") return false;
+  const due = new Date(circle.nextDueAt).getTime();
+  return due >= Date.now() && due <= Date.now() + 7 * 24 * 60 * 60 * 1000;
 }
 
-function formatDate(value: string | null) {
-  if (!value) return "Not scheduled";
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+function isAttention(circle: CircleListItem) {
+  return ["due_soon", "due_now", "late", "missed", "disputed"].includes(circle.myPaymentStatus ?? "") || ["delayed", "disputed"].includes(circle.status);
 }
 
-function statusVariant(status: string): "default" | "secondary" | "outline" | "destructive" {
-  if (["cancelled", "disputed", "late", "missed"].includes(status)) return "destructive";
-  if (["active", "completed", "paid"].includes(status)) return "default";
-  if (["draft", "pending", "scheduled"].includes(status)) return "secondary";
-  return "outline";
+function formatExposure(value: number) {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
 }
 
-function CircleCard({ circle }: { circle: CircleListItem }) {
+function EmptyCircles() {
   return (
-    <Card className="trust-ledger-surface transition-transform duration-200 hover:-translate-y-0.5">
-      <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <CardTitle className="text-lg">
-            <ShieldCheck className="size-4 text-primary" />
-            {circle.name}
-          </CardTitle>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant={statusVariant(circle.status)}>{titleCase(circle.status)}</Badge>
-            <Badge variant="outline">{titleCase(circle.role)}</Badge>
-          </div>
+    <div className="flex min-h-80 flex-col items-center justify-center rounded-2xl border border-dashed border-cyan-200 bg-white px-6 py-12 text-center">
+      <div className="flex size-14 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-700"><CircleDollarSign className="size-7" /></div>
+      <h2 className="mt-5 text-xl font-semibold text-[var(--color-text-default)]">No circles yet</h2>
+      <p className="mt-2 max-w-md text-sm leading-6 text-[var(--color-text-alternative)]">Start a private savings circle or accept an invite to see your shared contribution groups here.</p>
+      <Button render={<Link href="/dashboard/create" />} nativeButton={false} className="mt-6"><Plus className="size-4" /> Create your first circle</Button>
+    </div>
+  );
+}
+
+function NoResults() {
+  return (
+    <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-white px-6 py-14 text-center">
+      <CircleDashed className="mx-auto size-8 text-slate-300" />
+      <h2 className="mt-4 text-lg font-semibold text-[var(--color-text-default)]">No matching circles</h2>
+      <p className="mt-2 text-sm text-[var(--color-text-alternative)]">There are no circles in this view yet. Try another status filter.</p>
+    </div>
+  );
+}
+
+export function CircleList({ circles, initialFilter = "all" }: { circles: CirclesDTO; initialFilter?: CircleFilter }) {
+  const [filter, setFilter] = useState<CircleFilter>(initialFilter);
+  const [sort, setSort] = useState<CircleSort>("recent");
+
+  const metrics = useMemo(() => ({
+    active: circles.filter((circle) => circle.status === "active").length,
+    drafts: circles.filter((circle) => circle.status === "draft").length,
+    dueSoon: circles.filter(isDueSoon).length,
+    exposure: circles.reduce((total, circle) => total + circle.contributionAmount * circle.memberCount, 0),
+  }), [circles]);
+
+  const filteredCircles = useMemo(() => {
+    return circles
+      .filter((circle) => filter === "all" || circle.status === filter)
+      .sort((a, b) => {
+        if (sort === "members") return b.memberCount - a.memberCount;
+        if (sort === "contribution") return b.contributionAmount - a.contributionAmount;
+        if (sort === "due") return (a.nextDueAt ? new Date(a.nextDueAt).getTime() : Number.MAX_SAFE_INTEGER) - (b.nextDueAt ? new Date(b.nextDueAt).getTime() : Number.MAX_SAFE_INTEGER);
+        return circles.indexOf(a) - circles.indexOf(b);
+      });
+  }, [circles, filter, sort]);
+
+  const attention = filteredCircles.filter(isAttention);
+  const regular = filteredCircles.filter((circle) => !isAttention(circle));
+
+  return (
+    <div className="mx-auto grid max-w-[1440px] gap-7 rounded-[28px] border border-white/80 bg-[#fcfdfd] px-4 py-6 shadow-[0_24px_70px_-48px_rgba(18,49,61,0.5)] sm:px-6 sm:py-7 lg:px-8 lg:py-8">
+      <section className="flex flex-col gap-4 border-b border-slate-100 pb-6 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold text-[var(--color-text-default)] sm:text-4xl">Your Circles</h1>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--color-text-alternative)]">Keep every shared savings commitment visible, ready, and on schedule.</p>
         </div>
-      </CardHeader>
-      <CardContent className="grid gap-5">
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div>
-            <p className="text-muted-foreground">Contribution</p>
-            <p className="mt-1 font-semibold tabular-nums">
-              {circle.contributionAmount} {circle.contributionAsset}
-            </p>
-          </div>
-          <div>
-            <p className="text-muted-foreground">Round</p>
-            <p className="mt-1 font-semibold tabular-nums">
-              {circle.currentRound} / {circle.totalRounds}
-            </p>
-          </div>
-          <div>
-            <p className="text-muted-foreground">Members</p>
-            <p className="mt-1 font-semibold tabular-nums">{circle.memberCount}</p>
-          </div>
-          <div>
-            <p className="text-muted-foreground">Next due</p>
-            <p className="mt-1 font-semibold">{formatDate(circle.nextDueAt)}</p>
-          </div>
-        </div>
-        {circle.role === "member" ? (
-          <div className="flex flex-wrap gap-2">
-            {circle.myPaymentStatus ? (
-              <Badge variant={statusVariant(circle.myPaymentStatus)}>
-                {titleCase(circle.myPaymentStatus)}
-              </Badge>
-            ) : null}
-            {circle.myPayoutRound ? (
-              <Badge variant="outline">Payout round {circle.myPayoutRound}</Badge>
-            ) : null}
-          </div>
-        ) : null}
-        <Button render={<Link href={`/dashboard/${circle.id}`} />} nativeButton={false}>
-          Open circle
+        <Button render={<Link href="/dashboard/create" />} nativeButton={false} className="w-full sm:w-auto">
+          <Plus className="size-4" />
+          Create Circle
         </Button>
-      </CardContent>
-    </Card>
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="Circle summary">
+        <CircleSummaryCard label="Total circles" value={String(circles.length)} icon={WalletCards} tone="accent" />
+        <CircleSummaryCard label="Active" value={String(metrics.active)} detail="Currently running" icon={Activity} />
+        <CircleSummaryCard label="Drafts" value={String(metrics.drafts)} detail="Not activated" icon={CircleDashed} />
+        <CircleSummaryCard label="Due soon" value={String(metrics.dueSoon)} detail="Needs a closer look" icon={CircleAlert} tone={metrics.dueSoon > 0 ? "warning" : "default"} />
+        <CircleSummaryCard label="Total exposure" value={`${formatExposure(metrics.exposure)} USDC`} detail="Across listed circles" icon={CircleCheck} tone="accent" />
+      </section>
+
+      <CircleFilterBar filter={filter} sort={sort} onFilterChange={setFilter} onSortChange={setSort} />
+
+      {circles.length === 0 ? <EmptyCircles /> : filteredCircles.length === 0 ? <NoResults /> : (
+        <section className="grid gap-6" data-onboarding="circle-cards">
+          {attention.length > 0 ? (
+            <div className="grid gap-3">
+              <div className="flex items-center gap-2"><span className="size-2 rounded-full bg-amber-500" /><h2 className="text-lg font-semibold text-[var(--color-text-default)]">Needs attention</h2><span className="text-sm text-[var(--color-text-alternative)]">{attention.length}</span></div>
+              <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">{attention.map((circle) => <CircleCard key={circle.id} circle={circle} />)}</div>
+            </div>
+          ) : null}
+          {regular.length > 0 ? (
+            <div className="grid gap-3">
+              <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold text-[var(--color-text-default)]">All circles</h2><span className="text-sm text-[var(--color-text-alternative)]">{regular.length} shown</span></div>
+              <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">{regular.map((circle) => <CircleCard key={circle.id} circle={circle} />)}</div>
+            </div>
+          ) : null}
+        </section>
+      )}
+    </div>
   );
 }
-
-export function CircleList({ circles }: { circles: CirclesDTO }) {
-  const createButton = (
-    <Button render={<Link href="/dashboard/create" />} nativeButton={false} data-onboarding="create-circle">
-      <PlusCircle className="size-4" />
-      Create Circle
-    </Button>
-  );
-
-  if (circles.length === 0) {
-    return (
-      <DashboardShell
-        title="Your Circles"
-        description="Create or accept an invite-only circle to begin."
-        breadcrumbItems={[]}
-        headerTopRow={createButton}
-      >
-        <div data-onboarding="circle-cards">
-          <EmptyState
-            icon={<UsersRound className="size-8" />}
-            title="No circles yet"
-            description="Circulo keeps every pool invite-only, fixed-roster, and rule-locked before activation."
-          />
-        </div>
-      </DashboardShell>
-    );
-  }
-
-  return (
-    <DashboardShell
-      title="Your Circles"
-      description="Switch between circles, check payment readiness, and inspect the next action for each pool."
-      breadcrumbItems={[]}
-      headerTopRow={createButton}
-    >
-      <div data-onboarding="circle-cards" className="grid gap-4">
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-          {circles.map((circle) => (
-            <CircleCard key={circle.id} circle={circle} />
-          ))}
-        </div>
-      </div>
-      <div className="rounded-2xl border border-border bg-white p-4 text-sm text-muted-foreground">
-        <CalendarDays className="mr-2 inline size-4 text-primary" />
-        Circle setup, payouts, collateral, and reminders stay scoped to the selected circle.
-      </div>
-    </DashboardShell>
-  );
-}
-

@@ -3,6 +3,7 @@ import { DashboardSpotlightTour } from "@/components/onboarding/dashboard-spotli
 import { requireAuthenticatedUser } from "@/lib/auth";
 import { getDashboardDTO } from "@/lib/dashboard/queries";
 import { ConnectWalletButton } from "@/components/ConnectWalletButton";
+import Image from "next/image";
 
 export const dynamic = "force-dynamic";
 
@@ -38,8 +39,8 @@ export default async function DashboardLayout({
       brand={{
         title: "Circulo",
         href: "/dashboard",
-        full: <span className="font-heading text-xl">Circulo</span>,
-        compact: <span className="font-heading text-lg">C</span>,
+        full: <Image src="/logo.jpg" alt="Circulo" width={128} height={48} className="h-8 w-auto object-contain" priority />,
+        compact: <Image src="/logo.jpg" alt="Circulo" width={40} height={40} className="h-8 w-8 rounded-lg object-cover object-left" priority />,
       }}
       notificationCount={circles.filter((circle) => circle.myPaymentStatus && circle.myPaymentStatus !== "paid").length}
     >

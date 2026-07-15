@@ -1,6 +1,5 @@
 import { createClient, type User } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
 
 import { getIsSupabaseConfigured } from "@/lib/env";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -115,7 +114,6 @@ export async function getOptionalAuthContext(): Promise<OptionalAuthContext> {
 
     if (newProfile) {
       profile = newProfile;
-      revalidatePath("/", "layout");
     }
   }
 
@@ -152,7 +150,6 @@ export async function getOptionalAuthContext(): Promise<OptionalAuthContext> {
         console.error("getOptionalAuthContext - updateError:", updateError.message);
       } else {
         profile.username = resolvedUsername;
-        revalidatePath("/", "layout");
       }
     }
   }

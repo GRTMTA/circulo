@@ -7,9 +7,9 @@ import { logoutAction } from "@/app/auth/actions";
 import {
   Bell,
   CircleDot,
+  FlaskConical,
   LayoutDashboard,
   Menu,
-  Search,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -64,7 +64,6 @@ interface AppShellProps {
   children: React.ReactNode;
   brand?: AppShellBrand;
   user?: AppShellUser;
-  headerSearch?: React.ReactNode;
   headerActions?: React.ReactNode;
   sidebarFooter?: React.ReactNode;
   notificationCount?: number;
@@ -270,7 +269,6 @@ export function AppShell({
     href: "/",
   },
   user,
-  headerSearch,
   headerActions,
   sidebarFooter,
   notificationCount,
@@ -337,25 +335,12 @@ export function AppShell({
               </div>
             </div>
 
-            {headerSearch ? (
-              <div className="hidden flex-1 justify-center px-4 md:flex">{headerSearch}</div>
-            ) : (
-              <div className="hidden flex-1 justify-center px-4 md:flex">
-                <button
-                  type="button"
-                  data-onboarding="header-search"
-                  className="flex h-12 w-full max-w-xl items-center gap-3 rounded-xl border border-[var(--color-border-muted)] bg-[var(--color-background-default)] px-4 text-left text-sm text-muted-foreground shadow-sm transition-all hover:border-[var(--color-border-default)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--color-primary-muted)]"
-                >
-                  <Search className="size-4 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">Search</span>
-                  <kbd className="hidden rounded-md bg-[var(--color-background-muted)] px-2 py-1 text-xs font-bold text-[var(--color-text-alternative)] xl:inline-flex">
-                    Ctrl K
-                  </kbd>
-                </button>
-              </div>
-            )}
-
             <div className="flex items-center gap-3">
+              <div className="hidden items-center gap-2 rounded-xl border border-cyan-100 bg-cyan-50/80 px-3 py-2 text-xs font-semibold text-cyan-800 sm:flex">
+                <span className="size-1.5 rounded-full bg-cyan-500 shadow-[0_0_0_3px_rgba(34,211,238,0.14)]" />
+                <FlaskConical className="size-3.5" />
+                <span>Stellar Testnet</span>
+              </div>
               {headerActions}
               {typeof notificationCount === "number" ? (
                 <Button

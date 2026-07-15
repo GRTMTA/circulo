@@ -16,4 +16,10 @@ export const Default: Story = { args: { circles: createCirclesListMock() } };
 export const SingleCircle: Story = { args: { circles: createCirclesListMock(1) } };
 export const Empty: Story = { args: { circles: [] } };
 export const ManyCircles: Story = { args: { circles: createCirclesListMock(12) } };
+export const DueSoonAndCompleted: Story = {
+  args: { circles: createCirclesListMock() },
+};
+export const FilteredNoResults: Story = {
+  args: { circles: createCirclesListMock(), initialFilter: "cancelled" },
+};
 
