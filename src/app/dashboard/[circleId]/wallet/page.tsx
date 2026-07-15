@@ -32,7 +32,7 @@ export default async function WalletPage({
       ]}
     >
       <div className="grid gap-5 lg:grid-cols-[1fr_0.8fr]">
-        <WalletConnectCard walletAddress={null} />
+        <WalletConnectCard asset={data.circle.contributionAsset} />
         <WalletBalanceDisplay asset={data.circle.contributionAsset} />
         <WalletAssetSelect
           options={[{ asset: data.circle.contributionAsset, network: "Stellar Testnet" }]}

@@ -1,80 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { CircleDollarSign, Loader2, RefreshCw } from "lucide-react";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StellarWalletsKit, KitEventType, HORIZON_RPC_URL } from "@/config/stellar";
-import type { KitEventStateUpdated } from "@creit.tech/stellar-wallets-kit";
+import { useWallet } from "@/components/wallet/wallet-context";
 
 export function WalletBalanceDisplay({ asset }: { asset: string }) {
-  const [address, setAddress] = useState<string | null>(null);
-  const [assetBalance, setAssetBalance] = useState(0);
-  const [xlmBalance, setXlmBalance] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [hasFetched, setHasFetched] = useState(false);
-
-  useEffect(() => {
-    StellarWalletsKit.getAddress()
-      .then((result) => setAddress(result?.address ?? null))
-      .catch(() => setAddress(null));
-
-    const unsubscribeState = StellarWalletsKit.on(
-      KitEventType.STATE_UPDATED,
-      (event: KitEventStateUpdated) => setAddress(event?.payload?.address ?? null)
-    );
-    const unsubscribeDisconnect = StellarWalletsKit.on(
-      KitEventType.DISCONNECT,
-      () => {
-        setAddress(null);
-        setHasFetched(false);
-      }
-    );
-
-    return () => {
-      unsubscribeState();
-      unsubscribeDisconnect();
-    };
-  }, []);
-
-  async function fetchBalances(walletAddress: string) {
-    setLoading(true);
-    try {
-      const response = await fetch(`${HORIZON_RPC_URL}/accounts/${walletAddress}`, {
-        cache: "no-store",
-      });
-      if (response.status === 404) {
-        setAssetBalance(0);
-        setXlmBalance(0);
-        setHasFetched(true);
-        return;
-      }
-      if (!response.ok) throw new Error("Horizon request failed");
-
-      const data = await response.json();
-      const native = data.balances.find(
-        (balance: { asset_type: string }) => balance.asset_type === "native"
-      );
-      const selectedAsset = data.balances.find(
-        (balance: { asset_code?: string }) => balance.asset_code === asset
-      );
-      setXlmBalance(native ? Number.parseFloat(native.balance) : 0);
-      setAssetBalance(asset === "XLM" ? Number.parseFloat(native?.balance ?? "0") : Number.parseFloat(selectedAsset?.balance ?? "0"));
-      setHasFetched(true);
-    } catch (error) {
-      console.error("Horizon balance fetch failed:", error);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!address) return;
-    void fetchBalances(address);
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === "visible") void fetchBalances(address);
-    }, 15_000);
-    return () => window.clearInterval(interval);
-  }, [address, asset]);
+  const { address, xlmBalance, getAssetBalance, loading, hasFetched, refresh } = useWallet();
+  const assetBalance = getAssetBalance(asset);
 
   return (
     <Card className="trust-ledger-surface relative overflow-hidden">
@@ -85,7 +18,7 @@ export function WalletBalanceDisplay({ asset }: { asset: string }) {
         </CardTitle>
         {address ? (
           <button
-            onClick={() => void fetchBalances(address)}
+            onClick={refresh}
             disabled={loading}
             className="text-muted-foreground transition-colors hover:text-primary disabled:opacity-50"
             aria-label="Refresh balances"

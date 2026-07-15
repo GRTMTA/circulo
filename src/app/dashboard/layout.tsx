@@ -3,6 +3,7 @@ import { DashboardSpotlightTour } from "@/components/onboarding/dashboard-spotli
 import { requireAuthenticatedUser } from "@/lib/auth";
 import { getDashboardDTO } from "@/lib/dashboard/queries";
 import { ConnectWalletButton } from "@/components/ConnectWalletButton";
+import { WalletProvider } from "@/components/wallet/wallet-context";
 
 export default async function DashboardLayout({
   children,
@@ -27,20 +28,22 @@ export default async function DashboardLayout({
   const showOnboarding = !authContext.profile?.onboarding_completed_at;
 
   return (
-    <AppShell
-      circles={circles}
-      user={appShellUser}
-      headerActions={<ConnectWalletButton compact />}
-      brand={{
-        title: "Circulo",
-        href: "/dashboard",
-        full: <span className="font-heading text-xl">Circulo</span>,
-        compact: <span className="font-heading text-lg">C</span>,
-      }}
-      notificationCount={circles.filter((circle) => circle.myPaymentStatus && circle.myPaymentStatus !== "paid").length}
-    >
-      {children}
-      {showOnboarding ? <DashboardSpotlightTour /> : null}
-    </AppShell>
+    <WalletProvider>
+      <AppShell
+        circles={circles}
+        user={appShellUser}
+        headerActions={<ConnectWalletButton compact />}
+        brand={{
+          title: "Circulo",
+          href: "/dashboard",
+          full: <span className="font-heading text-xl">Circulo</span>,
+          compact: <span className="font-heading text-lg">C</span>,
+        }}
+        notificationCount={circles.filter((circle) => circle.myPaymentStatus && circle.myPaymentStatus !== "paid").length}
+      >
+        {children}
+        {showOnboarding ? <DashboardSpotlightTour /> : null}
+      </AppShell>
+    </WalletProvider>
   );
 }

@@ -1,49 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Loader2, Wallet, LogOut } from "lucide-react";
+import { useState } from "react";
+import { Loader2, Wallet, LogOut, ArrowUpRight } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StellarWalletsKit, KitEventType } from "@/config/stellar";
-import type { KitEventStateUpdated } from "@creit.tech/stellar-wallets-kit";
+import { StellarWalletsKit } from "@/config/stellar";
+import { useWallet } from "@/components/wallet/wallet-context";
+import { FundTestnetButton } from "@/components/stellar/fund-testnet-button";
+import { explorerAccountUrl } from "@/lib/stellar-testnet";
 
-export function WalletConnectCard({
-  walletAddress = null,
-}: {
-  walletAddress?: string | null;
-}) {
-  const [address, setAddress] = useState<string | null>(walletAddress);
+export function WalletConnectCard({ asset }: { asset?: string }) {
+  const { address, hasTrustline, refresh } = useWallet();
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    StellarWalletsKit.getAddress()
-      .then((result) => setAddress(result?.address ?? null))
-      .catch(() => setAddress(null));
-
-    const unsubscribeState = StellarWalletsKit.on(
-      KitEventType.STATE_UPDATED,
-      (event: KitEventStateUpdated) => setAddress(event?.payload?.address ?? null)
-    );
-    const unsubscribeDisconnect = StellarWalletsKit.on(
-      KitEventType.DISCONNECT,
-      () => setAddress(null)
-    );
-
-    return () => {
-      unsubscribeState();
-      unsubscribeDisconnect();
-    };
-  }, []);
 
   async function handleConnect() {
     setLoading(true);
     try {
       const result = await StellarWalletsKit.authModal();
       if (result?.address) {
-        setAddress(result.address);
         toast.success("Stellar testnet wallet connected.");
       }
     } catch {
@@ -55,10 +32,10 @@ export function WalletConnectCard({
 
   async function handleDisconnect() {
     await StellarWalletsKit.disconnect();
-    setAddress(null);
   }
 
   const isConnected = Boolean(address);
+  const missingTrustline = Boolean(address && asset && !hasTrustline(asset));
 
   return (
     <Card className="trust-ledger-surface">
@@ -80,11 +57,33 @@ export function WalletConnectCard({
         <p className="min-h-6 break-all rounded-lg border border-[var(--color-border-muted)] bg-[var(--color-background-muted)]/50 p-3 font-mono text-[11px] text-muted-foreground">
           {address ?? "Connect Freighter, xBull, or another supported Stellar wallet."}
         </p>
+
+        {missingTrustline ? (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700">
+            <p className="font-semibold">No {asset} trustline detected</p>
+            <p className="mt-1 opacity-90">
+              This wallet can&apos;t receive {asset} until it adds a trustline for it. Add one in
+              your wallet, or use an XLM circle for testing (XLM needs no trustline).
+            </p>
+          </div>
+        ) : null}
+
         {isConnected ? (
-          <Button variant="outline" onClick={handleDisconnect}>
-            <LogOut className="size-3.5" />
-            Disconnect
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <FundTestnetButton address={address} onFunded={refresh} />
+            <a
+              href={explorerAccountUrl(address as string)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-9 items-center gap-1 rounded-md border border-[var(--color-border-muted)] px-3 text-sm font-medium text-muted-foreground hover:text-primary"
+            >
+              View on explorer <ArrowUpRight className="size-3.5" />
+            </a>
+            <Button variant="outline" size="sm" onClick={handleDisconnect}>
+              <LogOut className="size-3.5" />
+              Disconnect
+            </Button>
+          </div>
         ) : (
           <Button disabled={loading} onClick={handleConnect}>
             {loading ? <Loader2 className="size-4 animate-spin" /> : null}
