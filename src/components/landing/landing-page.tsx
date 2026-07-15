@@ -115,16 +115,16 @@ function LandingNav() {
               "hidden sm:inline-flex"
             )}
           >
-            Login
+            Log In
           </Link>
           <Link
-            href="/dashboard"
+            href="/register"
             className={cn(
               buttonVariants({ size: "xs" }),
               "animate-gradient-shift rounded-xl bg-[linear-gradient(135deg,var(--color-primary-default),color-mix(in_srgb,var(--color-primary-default)_76%,var(--color-success-default)),var(--color-primary-default))] shadow-[0_16px_36px_-22px_var(--color-primary-default)]"
             )}
           >
-            Dashboard
+            Sign Up
             <ArrowRight data-icon="inline-end" />
           </Link>
         </div>
@@ -288,17 +288,8 @@ export function LandingPage() {
                 "hero-primary-button rounded-lg border border-primary/20 text-primary-foreground shadow-[0_20px_44px_-24px_var(--color-primary-default)] transition hover:scale-105"
               )}
             >
-              Start a circle
+              Start a Circle
               <ArrowRight data-icon="inline-end" />
-            </Link>
-            <Link
-              href="/dashboard"
-              className={cn(
-                buttonVariants({ variant: "outline", size: "lg" }),
-                "hero-secondary-button rounded-lg border-primary/20 text-foreground shadow-[0_16px_38px_-32px_rgba(26,31,54,0.65)] transition hover:scale-105"
-              )}
-            >
-              View dashboard
             </Link>
           </div>
 
@@ -359,30 +350,12 @@ export function LandingPage() {
       </section>
 
       <section className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6">
-        <div className="animate-gradient-shift grid gap-8 rounded-[18px] border border-primary/20 bg-[linear-gradient(135deg,var(--color-primary-default),color-mix(in_srgb,var(--color-primary-default)_72%,var(--color-success-default)),color-mix(in_srgb,var(--color-primary-default)_84%,var(--color-warning-default)))] p-6 text-primary-foreground shadow-[0_30px_100px_-48px_var(--color-primary-default)] sm:p-8 lg:grid-cols-[1fr_auto] lg:items-center">
+        <div className="animate-gradient-shift rounded-[18px] border border-primary/20 bg-[linear-gradient(135deg,var(--color-primary-default),color-mix(in_srgb,var(--color-primary-default)_72%,var(--color-success-default)),color-mix(in_srgb,var(--color-primary-default)_84%,var(--color-warning-default)))] p-6 text-primary-foreground shadow-[0_30px_100px_-48px_var(--color-primary-default)] sm:p-8">
           <div>
             <p className="text-sm font-semibold uppercase tracking-normal opacity-80">Ready when your circle is</p>
             <h2 className="mt-3 text-3xl font-semibold tracking-normal sm:text-4xl">
               Bring the agreement, roster, and wallet flow into one calm workspace.
             </h2>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row lg:justify-end">
-            <Link
-              href="/login"
-              className={cn(buttonVariants({ variant: "secondary", size: "lg" }), "rounded-xl")}
-            >
-              Create circle
-              <ArrowRight data-icon="inline-end" />
-            </Link>
-            <Link
-              href="/dashboard"
-              className={cn(
-                buttonVariants({ variant: "outline", size: "lg" }),
-                "border-primary-foreground/25 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/20"
-              )}
-            >
-              Open scaffold
-            </Link>
           </div>
         </div>
       </section>
