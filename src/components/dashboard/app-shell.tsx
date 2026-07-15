@@ -28,6 +28,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import type { CircleListItem } from "@/lib/dashboard/types";
+import { TestnetBadge } from "@/components/stellar/testnet-badge";
 import { cn } from "@/lib/utils";
 
 export interface AppShellNavigationItem {
@@ -69,6 +70,7 @@ interface AppShellProps {
   headerActions?: React.ReactNode;
   sidebarFooter?: React.ReactNode;
   notificationCount?: number;
+  notificationSlot?: React.ReactNode;
   defaultCollapsed?: boolean;
   circles?: CircleListItem[];
 }
@@ -275,6 +277,7 @@ export function AppShell({
   headerActions,
   sidebarFooter,
   notificationCount,
+  notificationSlot,
   defaultCollapsed = true,
   circles = [],
 }: AppShellProps) {
@@ -378,24 +381,27 @@ export function AppShell({
             )}
 
             <div className="flex items-center gap-3">
+              <TestnetBadge className="hidden sm:inline-flex" />
               {headerActions}
-              {typeof notificationCount === "number" ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  data-onboarding="notifications"
-                  className="relative size-11 rounded-xl"
-                  aria-label="Notifications"
-                >
-                  <Bell className="size-5" />
-                  {notificationCount > 0 ? (
-                    <span className="absolute top-1 right-1 flex min-w-5 items-center justify-center rounded-full bg-[var(--color-error-default)] px-1 text-[11px] font-bold text-[var(--color-error-inverse)]">
-                      {notificationCount}
-                    </span>
-                  ) : null}
-                </Button>
-              ) : null}
+              {notificationSlot ?? (
+                typeof notificationCount === "number" ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    data-onboarding="notifications"
+                    className="relative size-11 rounded-xl"
+                    aria-label="Notifications"
+                  >
+                    <Bell className="size-5" />
+                    {notificationCount > 0 ? (
+                      <span className="absolute top-1 right-1 flex min-w-5 items-center justify-center rounded-full bg-[var(--color-error-default)] px-1 text-[11px] font-bold text-[var(--color-error-inverse)]">
+                        {notificationCount}
+                      </span>
+                    ) : null}
+                  </Button>
+                ) : null
+              )}
 
               {user ? (
                 <Popover>

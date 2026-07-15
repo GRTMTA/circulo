@@ -97,6 +97,9 @@ import {
 } from "@/services/contractService";
 import { env, getTokenContractId } from "@/lib/env";
 import { calculateCollateral, MIN_CYCLE_MEMBERS } from "@/lib/create/validation";
+import { RoundPayoutPanel } from "@/components/dashboard/round-payout-panel";
+import { SlashMemberButton } from "@/components/dashboard/slash-member-button";
+import { ExplorerLink } from "@/components/stellar/explorer-link";
 import type {
   CreatorDashboardDTO,
   DashboardAuditEvent,
@@ -425,7 +428,13 @@ function SortHeader({
   );
 }
 
-export function MemberTable({ members }: { members: DashboardMember[] }) {
+export function MemberTable({
+  members,
+  slashControls,
+}: {
+  members: DashboardMember[];
+  slashControls?: { circleId: string; slashPercentage: number };
+}) {
   const [search, setSearch] = useState("");
   const [filterInvite, setFilterInvite] = useState<string | null>(null);
   const [filterAgreement, setFilterAgreement] = useState<string | null>(null);
@@ -625,13 +634,14 @@ export function MemberTable({ members }: { members: DashboardMember[] }) {
               sort={sort}
               onToggle={toggleSort}
             />
+            {slashControls ? <TableHead>Action</TableHead> : null}
           </TableRow>
         </TableHeader>
         <TableBody>
           {sorted.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={8}
+                colSpan={slashControls ? 9 : 8}
                 className="py-8 text-center text-sm text-muted-foreground"
               >
                 No members match your filters.
@@ -681,6 +691,21 @@ export function MemberTable({ members }: { members: DashboardMember[] }) {
                 <TableCell>
                   <StatusBadge status={member.restrictionStatus} />
                 </TableCell>
+                {slashControls ? (
+                  <TableCell>
+                    {member.role !== "creator" &&
+                    member.collateralStatus === "posted" &&
+                    member.restrictionStatus !== "restricted" ? (
+                      <SlashMemberButton
+                        circleId={slashControls.circleId}
+                        member={member}
+                        slashPercentage={slashControls.slashPercentage}
+                      />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                ) : null}
               </TableRow>
             ))
           )}
@@ -842,9 +867,7 @@ export function ContributionTable({
                   <StatusBadge status={contribution.status} />
                 </TableCell>
                 <TableCell className="font-mono text-sm">
-                  {contribution.txHash
-                    ? shortenWallet(contribution.txHash)
-                    : "-"}
+                  <ExplorerLink value={contribution.txHash} kind="tx" />
                 </TableCell>
                 <TableCell>{formatDate(contribution.paidAt)}</TableCell>
               </TableRow>
@@ -885,9 +908,7 @@ export function PayoutTimeline({
           <div className="flex items-center gap-3">
             <StatusBadge status={payout.status} />
             {payout.txHash ? (
-              <span className="font-mono text-sm text-muted-foreground">
-                {shortenWallet(payout.txHash)}
-              </span>
+              <ExplorerLink value={payout.txHash} kind="tx" />
             ) : null}
           </div>
         </div>
@@ -1218,7 +1239,14 @@ function CreatorDashboard({
           title="Members & Collateral"
           description="Creator-only roster, collateral, payment, and restriction status."
         >
-          <MemberTable members={data.members} />
+          <MemberTable
+            members={data.members}
+            slashControls={
+              data.circle.status === "active" && data.circle.autoSlashEnabled
+                ? { circleId: data.circle.id, slashPercentage: data.circle.slashPercentage }
+                : undefined
+            }
+          />
         </SectionCard>
       </TabsContent>
 
@@ -1235,7 +1263,28 @@ function CreatorDashboard({
         </SectionCard>
       </TabsContent>
 
-      <TabsContent value="payouts">
+      <TabsContent value="payouts" className="grid gap-6">
+        {data.circle.status === "active" ? (
+          <SectionCard
+            title="Release round payout"
+            description="Send the current round's pool to the on-chain recipient. Requires all contributions in."
+          >
+            <RoundPayoutPanel
+              circleId={data.circle.id}
+              circleAsset={data.circle.contributionAsset}
+              currentRound={data.circle.currentRound}
+              recipient={
+                data.members.find((m) => m.payoutRound === data.circle.currentRound) ?? null
+              }
+              allContributed={
+                data.members.length > 0 &&
+                data.contributions.filter(
+                  (c) => c.roundId === currentRound?.id && c.status === "paid"
+                ).length >= data.members.length
+              }
+            />
+          </SectionCard>
+        ) : null}
         <SectionCard
           title="Payout Order"
           description="Once active, payout order cannot be changed."

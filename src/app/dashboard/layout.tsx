@@ -1,18 +1,20 @@
 import { AppShell } from "@/components/dashboard/app-shell";
 import { DashboardSpotlightTour } from "@/components/onboarding/dashboard-spotlight-tour";
 import { requireAuthenticatedUser } from "@/lib/auth";
-import { getDashboardDTO } from "@/lib/dashboard/queries";
+import { getDashboardDTO, getUserNotifications } from "@/lib/dashboard/queries";
 import { ConnectWalletButton } from "@/components/ConnectWalletButton";
 import { WalletProvider } from "@/components/wallet/wallet-context";
+import { NotificationCenter } from "@/components/dashboard/notification-center";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [circles, authContext] = await Promise.all([
+  const [circles, authContext, notifications] = await Promise.all([
     getDashboardDTO(),
     requireAuthenticatedUser("/dashboard"),
+    getUserNotifications(),
   ]);
 
   const appShellUser = authContext.user
@@ -39,7 +41,7 @@ export default async function DashboardLayout({
           full: <span className="font-heading text-xl">Circulo</span>,
           compact: <span className="font-heading text-lg">C</span>,
         }}
-        notificationCount={circles.filter((circle) => circle.myPaymentStatus && circle.myPaymentStatus !== "paid").length}
+        notificationSlot={<NotificationCenter notifications={notifications} />}
       >
         {children}
         {showOnboarding ? <DashboardSpotlightTour /> : null}

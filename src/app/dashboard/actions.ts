@@ -821,3 +821,120 @@ export async function recordCollateralSlashAction(
   revalidatePath("/dashboard", "layout");
   return { success: true };
 }
+
+export async function recordRoundPayoutAction(
+  circleId: string,
+  recipientMemberId: string,
+  txHash: string
+) {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  if (!/^[0-9a-fA-F]{64}$/.test(txHash)) {
+    return { success: false, error: "A valid on-chain transaction hash is required." };
+  }
+
+  const supabase = await createServerSupabaseClient();
+
+  const { data: circle } = await supabase
+    .from("circles")
+    .select("id, creator_id, status, current_round, total_rounds")
+    .eq("id", circleId)
+    .single();
+
+  if (!circle || circle.creator_id !== authContext.user.id) {
+    return { success: false, error: "Only the circle creator can record a payout." };
+  }
+  if (circle.status !== "active") {
+    return { success: false, error: "Payouts can only be recorded on an active circle." };
+  }
+
+  const round = circle.current_round;
+  const isFinalRound = round >= circle.total_rounds;
+
+  // Mark the payout schedule row for this round as paid.
+  await supabase
+    .from("payout_schedule")
+    .update({ status: "paid", tx_hash: txHash })
+    .eq("circle_id", circleId)
+    .eq("round_number", round);
+
+  // Mark the round as paid.
+  await supabase
+    .from("circle_rounds")
+    .update({ status: "paid" })
+    .eq("circle_id", circleId)
+    .eq("round_number", round);
+
+  // Advance the circle, or complete it after the final round. This mirrors the
+  // on-chain round progression in execute_payout.
+  const { error: updateError } = await supabase
+    .from("circles")
+    .update(
+      isFinalRound
+        ? { status: "completed" }
+        : { current_round: round + 1 }
+    )
+    .eq("id", circleId);
+
+  if (updateError) {
+    return { success: false, error: updateError.message };
+  }
+
+  await supabase.from("audit_events").insert({
+    circle_id: circleId,
+    member_id: recipientMemberId,
+    event_type: isFinalRound ? "circle_completed" : "payout_released",
+    round_number: round,
+    tx_hash: txHash,
+    metadata: { round },
+  });
+
+  revalidatePath(`/dashboard/${circleId}`);
+  revalidatePath("/dashboard", "layout");
+  return { success: true, completed: isFinalRound };
+}
+
+export async function markNotificationReadAction(notificationId: string) {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const supabase = await createServerSupabaseClient();
+  const { error } = await supabase
+    .from("member_notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("id", notificationId)
+    .eq("profile_id", authContext.user.id);
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/dashboard", "layout");
+  return { success: true };
+}
+
+export async function markAllNotificationsReadAction() {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const supabase = await createServerSupabaseClient();
+  const { error } = await supabase
+    .from("member_notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("profile_id", authContext.user.id)
+    .is("read_at", null);
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/dashboard", "layout");
+  return { success: true };
+}

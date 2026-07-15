@@ -354,6 +354,32 @@ export async function getDashboardDTO(): Promise<CirclesDTO> {
   ] as CirclesDTO;
 }
 
+export interface NotificationWithCircle extends DashboardNotification {
+  circleName: string;
+}
+
+/** All notifications for the signed-in user, across every circle they're in. */
+export async function getUserNotifications(): Promise<NotificationWithCircle[]> {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return [];
+  }
+
+  const supabase = await createServerSupabaseClient();
+  const { data } = await supabase
+    .from("member_notifications")
+    .select("*, circles(name)")
+    .eq("profile_id", authContext.user.id)
+    .order("created_at", { ascending: false })
+    .limit(30)
+    .overrideTypes<(NotificationRow & { circles: { name: string } | null })[], { merge: false }>();
+
+  return (data ?? []).map((row) => ({
+    ...mapNotification(row),
+    circleName: row.circles?.name ?? "Circle",
+  }));
+}
+
 export async function getCircleDTO(circleId: string): Promise<CircleEnrichedDTO | null> {
   const authContext = await requireAuthenticatedUser(`/dashboard/${circleId}`);
 
