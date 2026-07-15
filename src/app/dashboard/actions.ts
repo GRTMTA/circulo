@@ -22,6 +22,7 @@ export interface CreateBasicsInput {
   contributionAsset: "USDC" | "USDT" | "XLM";
   intervalSeconds: number;
   memberCount: number;
+  payoutOrderMode: "creator" | "voting";
 }
 
 export interface CreateRosterMemberInput {
@@ -101,6 +102,7 @@ export async function createCircleAction(
       interval_seconds: basics.intervalSeconds,
       member_count: actualMemberCount, // current roster size (can grow up to the max)
       max_member_count: basics.memberCount,
+      payout_order_mode: basics.payoutOrderMode === "voting" ? "voting" : "creator",
       collateral_amount: collateral.collateralAmount,
       grace_period_hours: collateral.gracePeriodHours,
       slash_percentage: collateral.slashPercentage,

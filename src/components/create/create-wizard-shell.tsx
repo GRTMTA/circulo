@@ -37,6 +37,7 @@ const initialBasics: CreateBasicsState = {
   contributionAsset: "XLM",
   intervalSeconds: 86_400,
   memberCount: 2,
+  payoutOrderMode: "creator",
 };
 
 const initialCollateral: CreateCollateralState = {
@@ -291,7 +292,12 @@ export function CreateWizardShell({ defaultCreatorName }: { defaultCreatorName?:
           />
         ) : null}
         {step === 3 ? (
-          <CreatePayoutOrderStep order={payoutOrder} onReorder={setPayoutOrder} />
+          <CreatePayoutOrderStep
+            order={payoutOrder}
+            onReorder={setPayoutOrder}
+            mode={basics.payoutOrderMode}
+            onModeChange={(mode) => setBasics((current) => ({ ...current, payoutOrderMode: mode }))}
+          />
         ) : null}
         {step === 4 ? (
           <CreateReviewStep

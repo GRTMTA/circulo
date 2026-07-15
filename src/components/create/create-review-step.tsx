@@ -28,6 +28,7 @@ export function CreateReviewStep({
           <p><strong>Name:</strong> {basics.name}</p>
           <p><strong>Contribution:</strong> {basics.contributionAmount} {basics.contributionAsset}</p>
           <p><strong>Members:</strong> {basics.memberCount}</p>
+          <p><strong>Payout order:</strong> {basics.payoutOrderMode === "voting" ? "Member voting" : "Creator-set"}</p>
         </CardContent>
       </Card>
       <Card>

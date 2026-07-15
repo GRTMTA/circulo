@@ -432,12 +432,13 @@ mod test {
         let token = token::Client::new(&env, &token_address);
         let token_admin_client = token::StellarAssetClient::new(&env, &token_address);
 
+        env.mock_all_auths();
+
         token_admin_client.mint(&creator, &1000);
         token_admin_client.mint(&member, &1000);
         assert_eq!(token.balance(&creator), 1000);
         assert_eq!(token.balance(&member), 1000);
 
-        env.mock_all_auths();
         client.initialize(
             &circle_id,
             &creator,
@@ -487,9 +488,10 @@ mod test {
 
         // 3 members so the creator (k=1) has a non-zero collateral slice.
         let member_b = Address::generate(&env);
-        token_admin_client.mint(&creator, &10_000);
 
         env.mock_all_auths();
+        token_admin_client.mint(&creator, &10_000);
+
         client.initialize(
             &circle_id,
             &creator,

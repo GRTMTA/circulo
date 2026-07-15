@@ -16,6 +16,9 @@
               "function_name": "initialize",
               "args": [
                 {
+                  "u128": "999"
+                },
+                {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
@@ -55,6 +58,9 @@
               "function_name": "activate",
               "args": [
                 {
+                  "u128": "999"
+                },
+                {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 }
               ]
@@ -93,7 +99,14 @@
                   "storage": [
                     {
                       "key": {
-                        "symbol": "collat"
+                        "vec": [
+                          {
+                            "symbol": "collat"
+                          },
+                          {
+                            "u128": "999"
+                          }
+                        ]
                       },
                       "val": {
                         "i128": "50000000"
@@ -101,7 +114,14 @@
                     },
                     {
                       "key": {
-                        "symbol": "contrib"
+                        "vec": [
+                          {
+                            "symbol": "contrib"
+                          },
+                          {
+                            "u128": "999"
+                          }
+                        ]
                       },
                       "val": {
                         "i128": "100000000"
@@ -109,7 +129,14 @@
                     },
                     {
                       "key": {
-                        "symbol": "creator"
+                        "vec": [
+                          {
+                            "symbol": "creator"
+                          },
+                          {
+                            "u128": "999"
+                          }
+                        ]
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -117,7 +144,14 @@
                     },
                     {
                       "key": {
-                        "symbol": "interval"
+                        "vec": [
+                          {
+                            "symbol": "interval"
+                          },
+                          {
+                            "u128": "999"
+                          }
+                        ]
                       },
                       "val": {
                         "u64": "86400"
@@ -125,7 +159,14 @@
                     },
                     {
                       "key": {
-                        "symbol": "members"
+                        "vec": [
+                          {
+                            "symbol": "members"
+                          },
+                          {
+                            "u128": "999"
+                          }
+                        ]
                       },
                       "val": {
                         "vec": [
@@ -140,7 +181,14 @@
                     },
                     {
                       "key": {
-                        "symbol": "status"
+                        "vec": [
+                          {
+                            "symbol": "status"
+                          },
+                          {
+                            "u128": "999"
+                          }
+                        ]
                       },
                       "val": {
                         "symbol": "active"

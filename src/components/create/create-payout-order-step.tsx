@@ -1,18 +1,43 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Info } from "lucide-react";
+import { ArrowDown, ArrowUp, Info, Users, Vote } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import type { CreatePayoutOrderItem } from "@/lib/create/types";
+import type { CreatePayoutOrderItem, PayoutOrderMode } from "@/lib/create/types";
+import { cn } from "@/lib/utils";
+
+const MODE_OPTIONS: {
+  value: PayoutOrderMode;
+  label: string;
+  description: string;
+  icon: typeof Users;
+}[] = [
+  {
+    value: "creator",
+    label: "Creator sets the order",
+    description: "You arrange the payout order now. It locks at activation.",
+    icon: Users,
+  },
+  {
+    value: "voting",
+    label: "Members vote",
+    description: "Members vote on the order before activation. The creator seeds a proposed order.",
+    icon: Vote,
+  },
+];
 
 export function CreatePayoutOrderStep({
   order,
   onReorder,
+  mode,
+  onModeChange,
 }: {
   order: CreatePayoutOrderItem[];
   onReorder: (order: CreatePayoutOrderItem[]) => void;
+  mode: PayoutOrderMode;
+  onModeChange: (mode: PayoutOrderMode) => void;
 }) {
   function move(index: number, direction: -1 | 1) {
     const nextIndex = index + direction;
@@ -24,13 +49,41 @@ export function CreatePayoutOrderStep({
 
   return (
     <div className="grid gap-4">
+      {/* Mode selection */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {MODE_OPTIONS.map((option) => {
+          const Icon = option.icon;
+          const active = mode === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => onModeChange(option.value)}
+              aria-pressed={active}
+              className={cn(
+                "grid gap-1.5 rounded-xl border p-4 text-left transition-colors",
+                active
+                  ? "border-primary bg-[var(--color-primary-muted)]/40 ring-2 ring-primary/20"
+                  : "border-border bg-white hover:border-primary/40"
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <Icon className="size-4 text-primary" />
+                <span className="font-semibold">{option.label}</span>
+              </div>
+              <span className="text-sm text-muted-foreground">{option.description}</span>
+            </button>
+          );
+        })}
+      </div>
+
       <Alert>
         <Info className="size-4" />
         <AlertTitle>How payout order works</AlertTitle>
         <AlertDescription>
-          Each round, one member receives the full pool. Earlier positions get
-          paid sooner but still contribute for remaining rounds. Drag members to
-          set the order everyone agrees on — this locks at activation.
+          {mode === "voting"
+            ? "Each round, one member receives the full pool. You seed a proposed order below; members vote to confirm it before the cycle starts. The order locks at activation."
+            : "Each round, one member receives the full pool. Earlier positions get paid sooner but still contribute for remaining rounds. Set the order everyone agrees on — this locks at activation."}
         </AlertDescription>
       </Alert>
 
