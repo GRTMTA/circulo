@@ -40,6 +40,7 @@ export function LoginForm({ nextPath = "/dashboard" }: { nextPath?: string }) {
             type="email"
             autoComplete="email"
             placeholder="member@example.com"
+            className="placeholder:opacity-50"
             required
           />
         </Field>
@@ -59,6 +60,7 @@ export function LoginForm({ nextPath = "/dashboard" }: { nextPath?: string }) {
             name="password"
             autoComplete="current-password"
             placeholder="Your password"
+            className="placeholder:opacity-50"
             required
           />
         </Field>
