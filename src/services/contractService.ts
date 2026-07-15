@@ -250,6 +250,40 @@ export async function triggerExecutePayoutOnChain(
   return { txXdr: transaction.toXDR() };
 }
 
+export async function triggerSlashCollateralOnChain(
+  adminAddress: string,
+  contractAddress: string,
+  circleId: string,
+  memberAddress: string,
+  slashPercentage: number
+): Promise<{ txXdr: string }> {
+  assertAccountId(adminAddress, "Administrator address");
+  assertAccountId(memberAddress, "Member address");
+  if (
+    !Number.isInteger(slashPercentage) ||
+    slashPercentage < 0 ||
+    slashPercentage > 100
+  ) {
+    throw new Error("Slash percentage must be an integer between 0 and 100.");
+  }
+
+  const contract = new Contract(contractAddress);
+  const operation = contract.call(
+    "slash_collateral",
+    circleIdToScVal(circleId),
+    Address.fromString(adminAddress).toScVal(),
+    Address.fromString(memberAddress).toScVal(),
+    nativeToScVal(slashPercentage, { type: "u32" })
+  );
+  const transaction = await buildPreparedTransaction(
+    adminAddress,
+    contractAddress,
+    operation
+  );
+
+  return { txXdr: transaction.toXDR() };
+}
+
 export async function submitSignedTransaction(txXdr: string) {
   assertTestnetConfig();
   const transaction = TransactionBuilder.fromXDR(

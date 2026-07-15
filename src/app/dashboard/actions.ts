@@ -747,3 +747,75 @@ export async function deleteCircleAction(circleId: string) {
   revalidatePath("/dashboard", "layout");
   return { success: true };
 }
+
+export async function recordCollateralSlashAction(
+  circleId: string,
+  memberId: string,
+  slashedAmount: number,
+  txHash: string
+) {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  if (!/^[0-9a-fA-F]{64}$/.test(txHash)) {
+    return { success: false, error: "A valid on-chain transaction hash is required." };
+  }
+  if (!Number.isFinite(slashedAmount) || slashedAmount < 0) {
+    return { success: false, error: "Slashed amount is invalid." };
+  }
+
+  const supabase = await createServerSupabaseClient();
+
+  // Only the circle creator may record a slash.
+  const { data: circle } = await supabase
+    .from("circles")
+    .select("id, creator_id, status")
+    .eq("id", circleId)
+    .single();
+
+  if (!circle || circle.creator_id !== authContext.user.id) {
+    return { success: false, error: "Only the circle creator can slash collateral." };
+  }
+  if (circle.status !== "active" && circle.status !== "delayed") {
+    return { success: false, error: "Collateral can only be slashed on an active circle." };
+  }
+
+  const { data: member } = await supabase
+    .from("circle_members")
+    .select("id, slashed_amount")
+    .eq("id", memberId)
+    .eq("circle_id", circleId)
+    .maybeSingle();
+
+  if (!member) {
+    return { success: false, error: "Member not found in this circle." };
+  }
+
+  const priorSlashed = Number(member.slashed_amount ?? 0);
+  const { error: updateError } = await supabase
+    .from("circle_members")
+    .update({
+      collateral_status: "partially_slashed",
+      restriction_status: "warning",
+      slashed_amount: priorSlashed + slashedAmount,
+    })
+    .eq("id", member.id);
+
+  if (updateError) {
+    return { success: false, error: updateError.message };
+  }
+
+  await supabase.from("audit_events").insert({
+    circle_id: circleId,
+    member_id: member.id,
+    event_type: "collateral_slashed",
+    tx_hash: txHash,
+    metadata: { slashed_amount: slashedAmount },
+  });
+
+  revalidatePath(`/dashboard/${circleId}`);
+  revalidatePath("/dashboard", "layout");
+  return { success: true };
+}

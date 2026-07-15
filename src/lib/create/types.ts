@@ -1,9 +1,12 @@
+export type PayoutOrderMode = "creator" | "voting";
+
 export interface CreateBasicsState {
   name: string;
   contributionAmount: number;
   contributionAsset: "USDC" | "USDT" | "XLM";
   intervalSeconds: number;
   memberCount: number;
+  payoutOrderMode: PayoutOrderMode;
 }
 
 export interface CreateRosterMember {
