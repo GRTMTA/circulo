@@ -39,6 +39,7 @@ export default async function WalletPage({
           selected={data.circle.contributionAsset}
         />
         <WalletPayButton
+          circleId={circleId}
           amount={data.circle.contributionAmount}
           asset={data.circle.contributionAsset}
           dueDate={currentRound?.dueAt ?? data.circle.startDate}

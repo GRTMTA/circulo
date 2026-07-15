@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { CircleDollarSign, Loader2, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StellarWalletsKit, KitEventType } from "@/config/stellar";
+import { StellarWalletsKit, KitEventType, HORIZON_RPC_URL } from "@/config/stellar";
 import type { KitEventStateUpdated } from "@creit.tech/stellar-wallets-kit";
 
 export function WalletBalanceDisplay({ asset }: { asset: string }) {
@@ -39,7 +39,9 @@ export function WalletBalanceDisplay({ asset }: { asset: string }) {
   async function fetchBalances(walletAddress: string) {
     setLoading(true);
     try {
-      const response = await fetch(`${HORIZON_RPC_URL}/accounts/${walletAddress}`);
+      const response = await fetch(`${HORIZON_RPC_URL}/accounts/${walletAddress}`, {
+        cache: "no-store",
+      });
       if (response.status === 404) {
         setAssetBalance(0);
         setXlmBalance(0);
@@ -103,11 +105,11 @@ export function WalletBalanceDisplay({ asset }: { asset: string }) {
                   <Loader2 className="size-4 animate-spin" /> Fetching balance...
                 </span>
               ) : (
-                `${assetBalance.toFixed(2)} ${asset}`
+                `${assetBalance.toFixed(4)} ${asset}`
               )}
             </p>
             <div className="flex items-center justify-between border-t border-[var(--color-border-muted)] pt-3">
-              <span className="text-sm font-semibold tabular-nums">{xlmBalance.toFixed(2)} XLM</span>
+              <span className="text-sm font-semibold tabular-nums">{xlmBalance.toFixed(4)} XLM</span>
               <span className="text-[10px] uppercase text-muted-foreground">Fee reserve</span>
             </div>
           </div>

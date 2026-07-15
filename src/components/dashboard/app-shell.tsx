@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Menu,
   Search,
+  History,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -320,6 +321,12 @@ export function AppShell({
             icon: LayoutDashboard,
             match: "exact",
             subItems: circleItemsList,
+          },
+          {
+            label: "Transaction History",
+            href: "/dashboard/transactions",
+            icon: History,
+            match: "exact",
           },
         ],
       },

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   CalendarDays,
   ClipboardCheck,
@@ -17,6 +18,8 @@ import {
   ArrowUp,
   ArrowDown,
   AlertTriangle,
+  ArrowDownCircle,
+  Trash2,
 } from "lucide-react";
 
 // AppShell and DashboardShell imports removed since layout is managed by Next.js layouts.
@@ -32,10 +35,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
-import {
-  Progress,
-  ProgressLabel,
-} from "@/components/ui/progress";
+import { Progress, ProgressLabel } from "@/components/ui/progress";
 import {
   Table,
   TableBody,
@@ -44,13 +44,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
-import type { FilterOption, FilterSpec } from "@/components/ui/table-filter-bar";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type {
+  FilterOption,
+  FilterSpec,
+} from "@/components/ui/table-filter-bar";
 import { TableFilterBar } from "@/components/ui/table-filter-bar";
 import { CalendarExportButton } from "@/components/calendar/calendar-export-button";
 import { CycleCalendarView } from "@/components/calendar/cycle-calendar-view";
@@ -73,6 +71,8 @@ import {
   cancelCircleAction,
   acceptAgreementAction,
   activateCircleAction,
+  logCollateralRefundAction,
+  deleteCircleAction,
 } from "@/app/dashboard/actions";
 import { ContributionReminderBanner } from "@/components/reminders/contribution-reminder-banner";
 import { ReminderSettingsPanel } from "@/components/reminders/reminder-settings-panel";
@@ -88,9 +88,15 @@ import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { StellarWalletsKit } from "@/config/stellar";
-import { triggerContributeOnChain, submitSignedTransaction } from "@/services/contractService";
+import {
+  triggerPostCollateralOnChain,
+  triggerActivateOnChain,
+  triggerCancelCircleOnChain,
+  triggerClaimRefundOnChain,
+  submitSignedTransaction,
+} from "@/services/contractService";
 import { env, getTokenContractId } from "@/lib/env";
-import { MIN_CYCLE_MEMBERS } from "@/lib/create/validation";
+import { calculateCollateral, MIN_CYCLE_MEMBERS } from "@/lib/create/validation";
 import type {
   CreatorDashboardDTO,
   DashboardAuditEvent,
@@ -141,12 +147,27 @@ export function shortenWallet(wallet: string) {
   return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
 }
 
-function getStatusVariant(status: string): "default" | "secondary" | "outline" | "destructive" {
-  if (["late", "missed", "disputed", "cancelled", "fully_slashed", "restricted"].includes(status)) {
+function getStatusVariant(
+  status: string,
+): "default" | "secondary" | "outline" | "destructive" {
+  if (
+    [
+      "late",
+      "missed",
+      "disputed",
+      "cancelled",
+      "fully_slashed",
+      "restricted",
+    ].includes(status)
+  ) {
     return "destructive";
   }
 
-  if (["active", "paid", "posted", "accepted", "completed", "ready"].includes(status)) {
+  if (
+    ["active", "paid", "posted", "accepted", "completed", "ready"].includes(
+      status,
+    )
+  ) {
     return "default";
   }
 
@@ -164,10 +185,32 @@ function getStatusColor(status: string): string {
   if (status === "active" || status === "verifying") {
     return "bg-blue-50 text-blue-700 border-blue-200";
   }
-  if (["pending", "draft", "scheduled", "not_due", "delayed", "warning", "invited", "due_soon", "due_now", "grace_period"].includes(status)) {
+  if (
+    [
+      "pending",
+      "draft",
+      "scheduled",
+      "not_due",
+      "delayed",
+      "warning",
+      "invited",
+      "due_soon",
+      "due_now",
+      "grace_period",
+    ].includes(status)
+  ) {
     return "bg-amber-50 text-amber-700 border-amber-200";
   }
-  if (["late", "missed", "disputed", "cancelled", "fully_slashed", "restricted"].includes(status)) {
+  if (
+    [
+      "late",
+      "missed",
+      "disputed",
+      "cancelled",
+      "fully_slashed",
+      "restricted",
+    ].includes(status)
+  ) {
     return "bg-red-50 text-red-700 border-red-200";
   }
   return "bg-gray-50 text-gray-600 border-gray-200";
@@ -176,7 +219,10 @@ function getStatusColor(status: string): string {
 export function StatusBadge({ status }: { status: string }) {
   const variant = getStatusVariant(status);
   return (
-    <Badge variant={variant === "destructive" ? "destructive" : "outline"} className={getStatusColor(status)}>
+    <Badge
+      variant={variant === "destructive" ? "destructive" : "outline"}
+      className={getStatusColor(status)}
+    >
       {titleCase(status)}
     </Badge>
   );
@@ -202,8 +248,14 @@ export function StatCard({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <p className="text-2xl font-semibold tracking-tight text-foreground">{value}</p>
-        {detail ? <p className="mt-2 text-sm leading-6 text-muted-foreground">{detail}</p> : null}
+        <p className="text-2xl font-semibold tracking-tight text-foreground">
+          {value}
+        </p>
+        {detail ? (
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            {detail}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -231,16 +283,24 @@ export function SectionCard({
 
 export function getCurrentRound(rounds: DashboardRound[], fallback: number) {
   return (
-    rounds.find((round) => ["active", "late", "grace_period"].includes(round.status)) ??
+    rounds.find((round) =>
+      ["active", "late", "grace_period"].includes(round.status),
+    ) ??
     rounds.find((round) => round.roundNumber === fallback) ??
     rounds[0] ??
     null
   );
 }
 
-export function getMemberName(members: DashboardMember[], memberId: string | null) {
+export function getMemberName(
+  members: DashboardMember[],
+  memberId: string | null,
+) {
   if (!memberId) return "Unassigned";
-  return members.find((member) => member.id === memberId)?.displayName ?? "Unknown member";
+  return (
+    members.find((member) => member.id === memberId)?.displayName ??
+    "Unknown member"
+  );
 }
 
 function getMemberObject(members: DashboardMember[], memberId: string | null) {
@@ -264,7 +324,10 @@ function MemberAvatar({
   }
   return (
     <Avatar className={className}>
-      <AvatarImage src={member.avatarUrl ?? undefined} alt={member.displayName} />
+      <AvatarImage
+        src={member.avatarUrl ?? undefined}
+        alt={member.displayName}
+      />
       <AvatarFallback>
         {member.displayName
           .split(/\s+/)
@@ -285,20 +348,37 @@ export function getProgress(current: number, total: number) {
 type SortDirection = "asc" | "desc" | null;
 type SortConfig = { key: string; direction: SortDirection };
 
-function useSort(defaultKey: string): [SortConfig, (key: string) => void, <T>(items: T[], extractor: (item: T) => string | number) => T[]] {
-  const [sort, setSort] = useState<SortConfig>({ key: defaultKey, direction: "asc" });
+function useSort(
+  defaultKey: string,
+): [
+  SortConfig,
+  (key: string) => void,
+  <T>(items: T[], extractor: (item: T) => string | number) => T[],
+] {
+  const [sort, setSort] = useState<SortConfig>({
+    key: defaultKey,
+    direction: "asc",
+  });
 
   const toggleSort = (key: string) => {
     setSort((prev) => {
       if (prev.key === key) {
-        const next: SortDirection = prev.direction === "asc" ? "desc" : prev.direction === "desc" ? null : "asc";
+        const next: SortDirection =
+          prev.direction === "asc"
+            ? "desc"
+            : prev.direction === "desc"
+              ? null
+              : "asc";
         return { key, direction: next };
       }
       return { key, direction: "asc" };
     });
   };
 
-  const sortFn = <T,>(items: T[], extractor: (item: T) => string | number): T[] => {
+  const sortFn = <T,>(
+    items: T[],
+    extractor: (item: T) => string | number,
+  ): T[] => {
     if (!sort.direction) return items;
     return [...items].sort((a, b) => {
       const va = extractor(a);
@@ -332,7 +412,11 @@ function SortHeader({
       >
         {label}
         {isActive ? (
-          sort.direction === "asc" ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />
+          sort.direction === "asc" ? (
+            <ArrowUp className="size-3" />
+          ) : (
+            <ArrowDown className="size-3" />
+          )
         ) : (
           <ArrowUpDown className="size-3 opacity-30" />
         )}
@@ -347,51 +431,128 @@ export function MemberTable({ members }: { members: DashboardMember[] }) {
   const [filterAgreement, setFilterAgreement] = useState<string | null>(null);
   const [filterCollateral, setFilterCollateral] = useState<string | null>(null);
   const [filterPayment, setFilterPayment] = useState<string | null>(null);
-  const [filterRestriction, setFilterRestriction] = useState<string | null>(null);
+  const [filterRestriction, setFilterRestriction] = useState<string | null>(
+    null,
+  );
   const [sort, toggleSort, sortFn] = useSort("displayName");
 
   const statusOptions = (statuses: string[]): FilterOption[] =>
     statuses.map((s) => ({ value: s, label: titleCase(s) }));
 
-  const inviteStatuses = ["accepted", "invited", "declined", "expired"] as const;
+  const inviteStatuses = [
+    "accepted",
+    "invited",
+    "declined",
+    "expired",
+  ] as const;
   const agreementStatuses = ["accepted", "pending"] as const;
-  const collateralStatuses = ["not_posted", "posted", "partially_slashed", "fully_slashed"] as const;
-  const paymentStatuses = ["paid", "pending", "late", "missed", "not_due", "disputed"] as const;
+  const collateralStatuses = [
+    "not_posted",
+    "posted",
+    "partially_slashed",
+    "fully_slashed",
+  ] as const;
+  const paymentStatuses = [
+    "paid",
+    "pending",
+    "late",
+    "missed",
+    "not_due",
+    "disputed",
+  ] as const;
   const restrictionStatuses = ["clear", "warning", "restricted"] as const;
 
   const filtered = members.filter((m) => {
     const q = search.toLowerCase();
-    const matchesSearch = !q || m.displayName.toLowerCase().includes(q) || m.walletAddress.toLowerCase().includes(q);
+    const matchesSearch =
+      !q ||
+      m.displayName.toLowerCase().includes(q) ||
+      m.walletAddress.toLowerCase().includes(q);
     const matchesInvite = !filterInvite || m.inviteStatus === filterInvite;
-    const matchesAgreement = !filterAgreement || m.agreementStatus === filterAgreement;
-    const matchesCollateral = !filterCollateral || m.collateralStatus === filterCollateral;
+    const matchesAgreement =
+      !filterAgreement || m.agreementStatus === filterAgreement;
+    const matchesCollateral =
+      !filterCollateral || m.collateralStatus === filterCollateral;
     const matchesPayment = !filterPayment || m.paymentStatus === filterPayment;
-    const matchesRestriction = !filterRestriction || m.restrictionStatus === filterRestriction;
-    return matchesSearch && matchesInvite && matchesAgreement && matchesCollateral && matchesPayment && matchesRestriction;
+    const matchesRestriction =
+      !filterRestriction || m.restrictionStatus === filterRestriction;
+    return (
+      matchesSearch &&
+      matchesInvite &&
+      matchesAgreement &&
+      matchesCollateral &&
+      matchesPayment &&
+      matchesRestriction
+    );
   });
 
   const sorted = sortFn(filtered, (m) => {
     switch (sort.key) {
-      case "displayName": return m.displayName;
-      case "walletAddress": return m.walletAddress;
-      case "inviteStatus": return m.inviteStatus;
-      case "agreementStatus": return m.agreementStatus;
-      case "collateralStatus": return m.collateralStatus;
-      case "paymentStatus": return m.paymentStatus;
-      case "payoutRound": return m.payoutRound;
-      case "restrictionStatus": return m.restrictionStatus;
-      default: return m.displayName;
+      case "displayName":
+        return m.displayName;
+      case "walletAddress":
+        return m.walletAddress;
+      case "inviteStatus":
+        return m.inviteStatus;
+      case "agreementStatus":
+        return m.agreementStatus;
+      case "collateralStatus":
+        return m.collateralStatus;
+      case "paymentStatus":
+        return m.paymentStatus;
+      case "payoutRound":
+        return m.payoutRound;
+      case "restrictionStatus":
+        return m.restrictionStatus;
+      default:
+        return m.displayName;
     }
   });
 
-  const hasActiveFilters = !!search || !!filterInvite || !!filterAgreement || !!filterCollateral || !!filterPayment || !!filterRestriction;
+  const hasActiveFilters =
+    !!search ||
+    !!filterInvite ||
+    !!filterAgreement ||
+    !!filterCollateral ||
+    !!filterPayment ||
+    !!filterRestriction;
 
   const filters: FilterSpec[] = [
-    { id: "invite", label: "Invite", value: filterInvite, options: statusOptions([...inviteStatuses]), onChange: setFilterInvite },
-    { id: "agreement", label: "Agreement", value: filterAgreement, options: statusOptions([...agreementStatuses]), onChange: setFilterAgreement },
-    { id: "collateral", label: "Collateral", value: filterCollateral, options: statusOptions([...collateralStatuses]), onChange: setFilterCollateral },
-    { id: "payment", label: "Contribution", value: filterPayment, options: statusOptions([...paymentStatuses]), onChange: setFilterPayment },
-    { id: "restriction", label: "Restriction", value: filterRestriction, options: statusOptions([...restrictionStatuses]), onChange: setFilterRestriction },
+    {
+      id: "invite",
+      label: "Invite",
+      value: filterInvite,
+      options: statusOptions([...inviteStatuses]),
+      onChange: setFilterInvite,
+    },
+    {
+      id: "agreement",
+      label: "Agreement",
+      value: filterAgreement,
+      options: statusOptions([...agreementStatuses]),
+      onChange: setFilterAgreement,
+    },
+    {
+      id: "collateral",
+      label: "Collateral",
+      value: filterCollateral,
+      options: statusOptions([...collateralStatuses]),
+      onChange: setFilterCollateral,
+    },
+    {
+      id: "payment",
+      label: "Contribution",
+      value: filterPayment,
+      options: statusOptions([...paymentStatuses]),
+      onChange: setFilterPayment,
+    },
+    {
+      id: "restriction",
+      label: "Restriction",
+      value: filterRestriction,
+      options: statusOptions([...restrictionStatuses]),
+      onChange: setFilterRestriction,
+    },
   ];
 
   return (
@@ -416,20 +577,63 @@ export function MemberTable({ members }: { members: DashboardMember[] }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <SortHeader label="Member" sortKey="displayName" sort={sort} onToggle={toggleSort} />
-            <SortHeader label="Wallet" sortKey="walletAddress" sort={sort} onToggle={toggleSort} />
-            <SortHeader label="Invite" sortKey="inviteStatus" sort={sort} onToggle={toggleSort} />
-            <SortHeader label="Agreement" sortKey="agreementStatus" sort={sort} onToggle={toggleSort} />
-            <SortHeader label="Collateral" sortKey="collateralStatus" sort={sort} onToggle={toggleSort} />
-            <SortHeader label="Contribution" sortKey="paymentStatus" sort={sort} onToggle={toggleSort} />
-            <SortHeader label="Payout" sortKey="payoutRound" sort={sort} onToggle={toggleSort} />
-            <SortHeader label="Restriction" sortKey="restrictionStatus" sort={sort} onToggle={toggleSort} />
+            <SortHeader
+              label="Member"
+              sortKey="displayName"
+              sort={sort}
+              onToggle={toggleSort}
+            />
+            <SortHeader
+              label="Wallet"
+              sortKey="walletAddress"
+              sort={sort}
+              onToggle={toggleSort}
+            />
+            <SortHeader
+              label="Invite"
+              sortKey="inviteStatus"
+              sort={sort}
+              onToggle={toggleSort}
+            />
+            <SortHeader
+              label="Agreement"
+              sortKey="agreementStatus"
+              sort={sort}
+              onToggle={toggleSort}
+            />
+            <SortHeader
+              label="Collateral"
+              sortKey="collateralStatus"
+              sort={sort}
+              onToggle={toggleSort}
+            />
+            <SortHeader
+              label="Contribution"
+              sortKey="paymentStatus"
+              sort={sort}
+              onToggle={toggleSort}
+            />
+            <SortHeader
+              label="Payout"
+              sortKey="payoutRound"
+              sort={sort}
+              onToggle={toggleSort}
+            />
+            <SortHeader
+              label="Restriction"
+              sortKey="restrictionStatus"
+              sort={sort}
+              onToggle={toggleSort}
+            />
           </TableRow>
         </TableHeader>
         <TableBody>
           {sorted.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
+              <TableCell
+                colSpan={8}
+                className="py-8 text-center text-sm text-muted-foreground"
+              >
                 No members match your filters.
                 {hasActiveFilters ? (
                   <button
@@ -458,13 +662,25 @@ export function MemberTable({ members }: { members: DashboardMember[] }) {
                     <span className="font-semibold">{member.displayName}</span>
                   </div>
                 </TableCell>
-                <TableCell className="font-mono text-sm">{shortenWallet(member.walletAddress)}</TableCell>
-                <TableCell><StatusBadge status={member.inviteStatus} /></TableCell>
-                <TableCell><StatusBadge status={member.agreementStatus} /></TableCell>
-                <TableCell><StatusBadge status={member.collateralStatus} /></TableCell>
-                <TableCell><StatusBadge status={member.paymentStatus} /></TableCell>
+                <TableCell className="font-mono text-sm">
+                  {shortenWallet(member.walletAddress)}
+                </TableCell>
+                <TableCell>
+                  <StatusBadge status={member.inviteStatus} />
+                </TableCell>
+                <TableCell>
+                  <StatusBadge status={member.agreementStatus} />
+                </TableCell>
+                <TableCell>
+                  <StatusBadge status={member.collateralStatus} />
+                </TableCell>
+                <TableCell>
+                  <StatusBadge status={member.paymentStatus} />
+                </TableCell>
                 <TableCell>Round {member.payoutRound}</TableCell>
-                <TableCell><StatusBadge status={member.restrictionStatus} /></TableCell>
+                <TableCell>
+                  <StatusBadge status={member.restrictionStatus} />
+                </TableCell>
               </TableRow>
             ))
           )}
@@ -487,7 +703,18 @@ export function ContributionTable({
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [sort, toggleSort, sortFn] = useSort("memberName");
 
-  const contributionStatuses = ["paid", "pending", "late", "missed", "not_due", "disputed", "due_soon", "due_now", "verifying", "grace_period"] as const;
+  const contributionStatuses = [
+    "paid",
+    "pending",
+    "late",
+    "missed",
+    "not_due",
+    "disputed",
+    "due_soon",
+    "due_now",
+    "verifying",
+    "grace_period",
+  ] as const;
 
   const filtered = contributions.filter((c) => {
     const q = search.toLowerCase();
@@ -499,18 +726,32 @@ export function ContributionTable({
 
   const sorted = sortFn(filtered, (c) => {
     switch (sort.key) {
-      case "memberName": return getMemberName(members, c.memberId);
-      case "amountDue": return c.amountDue;
-      case "status": return c.status;
-      case "paidAt": return c.paidAt ?? "";
-      default: return getMemberName(members, c.memberId);
+      case "memberName":
+        return getMemberName(members, c.memberId);
+      case "amountDue":
+        return c.amountDue;
+      case "status":
+        return c.status;
+      case "paidAt":
+        return c.paidAt ?? "";
+      default:
+        return getMemberName(members, c.memberId);
     }
   });
 
   const hasActiveFilters = !!search || !!filterStatus;
-  const statusOptions: FilterOption[] = contributionStatuses.map((s) => ({ value: s, label: titleCase(s) }));
+  const statusOptions: FilterOption[] = contributionStatuses.map((s) => ({
+    value: s,
+    label: titleCase(s),
+  }));
   const filters: FilterSpec[] = [
-    { id: "status", label: "Status", value: filterStatus, options: statusOptions, onChange: setFilterStatus },
+    {
+      id: "status",
+      label: "Status",
+      value: filterStatus,
+      options: statusOptions,
+      onChange: setFilterStatus,
+    },
   ];
 
   return (
@@ -522,29 +763,58 @@ export function ContributionTable({
         filters={filters}
         totalCount={contributions.length}
         filteredCount={sorted.length}
-        onClearFilters={() => { setSearch(""); setFilterStatus(null); }}
+        onClearFilters={() => {
+          setSearch("");
+          setFilterStatus(null);
+        }}
         hasActiveFilters={hasActiveFilters}
       />
       <Table>
         <TableHeader>
           <TableRow>
-            <SortHeader label="Member" sortKey="memberName" sort={sort} onToggle={toggleSort} />
-            <SortHeader label="Amount Due" sortKey="amountDue" sort={sort} onToggle={toggleSort} />
-            <SortHeader label="Status" sortKey="status" sort={sort} onToggle={toggleSort} />
+            <SortHeader
+              label="Member"
+              sortKey="memberName"
+              sort={sort}
+              onToggle={toggleSort}
+            />
+            <SortHeader
+              label="Amount Due"
+              sortKey="amountDue"
+              sort={sort}
+              onToggle={toggleSort}
+            />
+            <SortHeader
+              label="Status"
+              sortKey="status"
+              sort={sort}
+              onToggle={toggleSort}
+            />
             <TableHead>TX Hash</TableHead>
-            <SortHeader label="Time Paid" sortKey="paidAt" sort={sort} onToggle={toggleSort} />
+            <SortHeader
+              label="Time Paid"
+              sortKey="paidAt"
+              sort={sort}
+              onToggle={toggleSort}
+            />
           </TableRow>
         </TableHeader>
         <TableBody>
           {sorted.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+              <TableCell
+                colSpan={5}
+                className="py-8 text-center text-sm text-muted-foreground"
+              >
                 No contributions match your filters.
                 {hasActiveFilters ? (
                   <button
                     type="button"
                     className="ml-1 font-medium text-primary underline"
-                    onClick={() => { setSearch(""); setFilterStatus(null); }}
+                    onClick={() => {
+                      setSearch("");
+                      setFilterStatus(null);
+                    }}
                   >
                     Clear filters
                   </button>
@@ -556,16 +826,25 @@ export function ContributionTable({
               <TableRow key={contribution.id}>
                 <TableCell>
                   <div className="flex items-center gap-3">
-                    <MemberAvatar member={getMemberObject(members, contribution.memberId)} className="size-8" />
+                    <MemberAvatar
+                      member={getMemberObject(members, contribution.memberId)}
+                      className="size-8"
+                    />
                     <span className="font-semibold">
                       {getMemberName(members, contribution.memberId)}
                     </span>
                   </div>
                 </TableCell>
-                <TableCell>{formatAmount(contribution.amountDue, asset)}</TableCell>
-                <TableCell><StatusBadge status={contribution.status} /></TableCell>
+                <TableCell>
+                  {formatAmount(contribution.amountDue, asset)}
+                </TableCell>
+                <TableCell>
+                  <StatusBadge status={contribution.status} />
+                </TableCell>
                 <TableCell className="font-mono text-sm">
-                  {contribution.txHash ? shortenWallet(contribution.txHash) : "-"}
+                  {contribution.txHash
+                    ? shortenWallet(contribution.txHash)
+                    : "-"}
                 </TableCell>
                 <TableCell>{formatDate(contribution.paidAt)}</TableCell>
               </TableRow>
@@ -596,7 +875,9 @@ export function PayoutTimeline({
             className="size-11"
           />
           <div>
-            <p className="font-semibold">{getMemberName(members, payout.recipientMemberId)}</p>
+            <p className="font-semibold">
+              {getMemberName(members, payout.recipientMemberId)}
+            </p>
             <p className="mt-1 text-sm text-muted-foreground">
               Expected {formatDate(payout.expectedPayoutAt)}
             </p>
@@ -630,8 +911,12 @@ function ActivateButton({
   if (status !== "draft") {
     return (
       <div className="mt-6 rounded-xl border border-[var(--color-success-default)]/20 bg-[var(--color-success-default)]/5 p-4 text-sm">
-        <p className="font-semibold text-[var(--color-success-default)]">Circle is already active</p>
-        <p className="mt-1 text-muted-foreground">This circle has been activated and is processing rounds.</p>
+        <p className="font-semibold text-[var(--color-success-default)]">
+          Circle is already active
+        </p>
+        <p className="mt-1 text-muted-foreground">
+          This circle has been activated and is processing rounds.
+        </p>
       </div>
     );
   }
@@ -640,9 +925,39 @@ function ActivateButton({
     setLoading(true);
     setError(null);
     try {
+      const addressRes = await StellarWalletsKit.getAddress();
+      const creatorAddress = addressRes?.address;
+      if (!creatorAddress) {
+        throw new Error("Connect a Stellar testnet wallet first.");
+      }
+
+      if (!env.contractId) {
+        throw new Error("NEXT_PUBLIC_CIRCULO_CONTRACT_ID is not configured.");
+      }
+
+      toast.info(
+        "Preparing on-chain contract activation. Please sign the transaction...",
+      );
+
+      const { txXdr } = await triggerActivateOnChain(
+        creatorAddress,
+        env.contractId,
+        circleId,
+      );
+
+      const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
+        networkPassphrase: env.sorobanNetworkPassphrase,
+        address: creatorAddress,
+      });
+
+      toast.info("Submitting activation transaction to Stellar Testnet...");
+      await submitSignedTransaction(signedTxXdr);
+
       const res = await activateCircleAction(circleId);
       if (!res.success) {
         setError(res.error ?? "Activation failed.");
+      } else {
+        toast.success("Circle successfully activated on-chain!");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Activation failed.");
@@ -659,11 +974,16 @@ function ActivateButton({
         </div>
       ) : null}
       <Button disabled={!ready || loading} onClick={handleActivate}>
-        {loading ? "Activating..." : ready ? "Activate Circle" : "Activation Locked"}
+        {loading
+          ? "Activating..."
+          : ready
+            ? "Activate Circle"
+            : "Activation Locked"}
       </Button>
       {ready ? (
         <p className="text-xs text-muted-foreground">
-          All gates are satisfied. Activating will lock the circle permanently and begin Round 1.
+          All gates are satisfied. Activating will lock the circle permanently
+          and begin Round 1.
         </p>
       ) : null}
     </div>
@@ -678,10 +998,18 @@ function CreatorDashboard({
   isTabContentOnly?: boolean;
 }) {
   const currentRound = getCurrentRound(data.rounds, data.circle.currentRound);
-  const postedCollateral = data.members.filter((member) => member.collateralStatus === "posted").length;
-  const acceptedMembers = data.members.filter((member) => member.inviteStatus === "accepted").length;
-  const acceptedAgreements = data.members.filter((member) => member.agreementStatus === "accepted").length;
-  const paidContributions = data.contributions.filter((contribution) => contribution.status === "paid").length;
+  const postedCollateral = data.members.filter(
+    (member) => member.collateralStatus === "posted",
+  ).length;
+  const acceptedMembers = data.members.filter(
+    (member) => member.inviteStatus === "accepted",
+  ).length;
+  const acceptedAgreements = data.members.filter(
+    (member) => member.agreementStatus === "accepted",
+  ).length;
+  const paidContributions = data.contributions.filter(
+    (contribution) => contribution.status === "paid",
+  ).length;
   const missingContributions = data.members.length - paidContributions;
   // A member counts as "ready" only when their invite, agreement, and
   // collateral are all validated.
@@ -689,9 +1017,10 @@ function CreatorDashboard({
     (member) =>
       member.inviteStatus === "accepted" &&
       member.agreementStatus === "accepted" &&
-      member.collateralStatus === "posted"
+      member.collateralStatus === "posted",
   ).length;
-  const allPresentValidated = data.members.length > 0 && readyMembers === data.members.length;
+  const allPresentValidated =
+    data.members.length > 0 && readyMembers === data.members.length;
   const activationReady =
     readyMembers >= MIN_CYCLE_MEMBERS &&
     allPresentValidated &&
@@ -701,30 +1030,71 @@ function CreatorDashboard({
 
   const tabContent = (
     <>
-
       <TabsContent value="overview" className="grid gap-6">
         <CircleStatusBanner status={data.circle.status} />
+        {data.circle.status === "cancelled" ? (
+          <Alert className="border-rose-500/20 bg-rose-50/50 text-rose-700 animate-enter-soft">
+            <AlertTriangle className="size-4 text-rose-500" />
+            <AlertTitle className="font-bold text-rose-800">Circle Cancelled</AlertTitle>
+            <AlertDescription className="flex flex-col gap-3 mt-1.5 sm:flex-row sm:items-center sm:justify-between">
+              <span>This circle has been cancelled. Members can reclaim their collateral. You can permanently delete this circle to remove it from all dashboards.</span>
+              <DeleteCircleButton circleId={data.circle.id} />
+            </AlertDescription>
+          </Alert>
+        ) : null}
         <CircleStatusCard
           status={data.circle.status}
           currentRound={data.circle.currentRound}
           totalRounds={data.circle.totalRounds}
         />
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <StatCard label="Collateral Posted" value={`${postedCollateral} / ${data.members.length}`} icon={LockKeyhole} />
-          <StatCard label="Current Round" value={`Round ${data.circle.currentRound}`} detail={`of ${data.circle.totalRounds}`} icon={CalendarDays} />
-          <StatCard label="Collected" value={formatAmount(currentRound?.collectedAmount ?? 0, data.circle.contributionAsset)} detail={`Expected ${formatAmount(currentRound?.expectedAmount ?? 0, data.circle.contributionAsset)}`} icon={PiggyBank} />
-          <StatCard label="Next Due" value={formatDate(currentRound?.dueAt ?? null)} icon={ClipboardCheck} />
-          <StatCard label="Missing Contributions" value={`${Math.max(0, missingContributions)} member${missingContributions === 1 ? "" : "s"}`} icon={ShieldAlert} />
+          <StatCard
+            label="Collateral Posted"
+            value={`${postedCollateral} / ${data.members.length}`}
+            icon={LockKeyhole}
+          />
+          <StatCard
+            label="Current Round"
+            value={`Round ${data.circle.currentRound}`}
+            detail={`of ${data.circle.totalRounds}`}
+            icon={CalendarDays}
+          />
+          <StatCard
+            label="Collected"
+            value={formatAmount(
+              currentRound?.collectedAmount ?? 0,
+              data.circle.contributionAsset,
+            )}
+            detail={`Expected ${formatAmount(currentRound?.expectedAmount ?? 0, data.circle.contributionAsset)}`}
+            icon={PiggyBank}
+          />
+          <StatCard
+            label="Next Due"
+            value={formatDate(currentRound?.dueAt ?? null)}
+            icon={ClipboardCheck}
+          />
+          <StatCard
+            label="Missing Contributions"
+            value={`${Math.max(0, missingContributions)} member${missingContributions === 1 ? "" : "s"}`}
+            icon={ShieldAlert}
+          />
         </div>
-        <SectionCard title="Circle health" description="Operational snapshot for the creator.">
+        <SectionCard
+          title="Circle health"
+          description="Operational snapshot for the creator."
+        >
           <div className="grid gap-4 md:grid-cols-2">
-            <Progress value={getProgress(postedCollateral, data.members.length)}>
+            <Progress
+              value={getProgress(postedCollateral, data.members.length)}
+            >
               <ProgressLabel>Collateral posted</ProgressLabel>
               <span className="ml-auto text-sm text-muted-foreground tabular-nums">
                 {postedCollateral} / {data.members.length}
               </span>
             </Progress>
-            <Progress value={getProgress(paidContributions, data.members.length)}>
+            <Progress
+              value={getProgress(paidContributions, data.members.length)}
+            >
               <ProgressLabel>Current round paid</ProgressLabel>
               <span className="ml-auto text-sm text-muted-foreground tabular-nums">
                 {paidContributions} / {data.members.length}
@@ -739,23 +1109,50 @@ function CreatorDashboard({
           <ShieldCheck className="size-4" />
           <AlertTitle>Starting a cycle requires all gates to pass</AlertTitle>
           <AlertDescription>
-            A cycle can start once at least {MIN_CYCLE_MEMBERS} members have validated collateral and
-            every member currently in the circle is validated. Members added later join the next cycle,
-            not the one in progress.
+            A cycle can start once at least {MIN_CYCLE_MEMBERS} members have
+            validated collateral and every member currently in the circle is
+            validated. Members added later join the next cycle, not the one in
+            progress.
           </AlertDescription>
         </Alert>
         <SectionCard title="Activation requirements">
           <div className="grid gap-3 md:grid-cols-2">
-            {([
-              [`${readyMembers} / ${MIN_CYCLE_MEMBERS} minimum members validated`, readyMembers >= MIN_CYCLE_MEMBERS],
-              [`${postedCollateral} / ${data.members.length} collateral posted`, postedCollateral === data.members.length],
-              [`${acceptedMembers} / ${data.members.length} members accepted invite`, acceptedMembers === data.members.length],
-              [`${acceptedAgreements} / ${data.members.length} agreements accepted`, acceptedAgreements === data.members.length],
-              ["Payout order selected and locked", data.circle.payoutOrderLocked],
-              ["Contribution amount and interval locked", data.circle.settingsLocked],
-              ["Default and collateral rules locked", data.circle.rulesLocked],
-            ] as [string, boolean][]).map(([label, complete]) => (
-              <div key={label} className="flex items-center justify-between rounded-xl border border-border bg-white p-4">
+            {(
+              [
+                [
+                  `${readyMembers} / ${MIN_CYCLE_MEMBERS} minimum members validated`,
+                  readyMembers >= MIN_CYCLE_MEMBERS,
+                ],
+                [
+                  `${postedCollateral} / ${data.members.length} collateral posted`,
+                  postedCollateral === data.members.length,
+                ],
+                [
+                  `${acceptedMembers} / ${data.members.length} members accepted invite`,
+                  acceptedMembers === data.members.length,
+                ],
+                [
+                  `${acceptedAgreements} / ${data.members.length} agreements accepted`,
+                  acceptedAgreements === data.members.length,
+                ],
+                [
+                  "Payout order selected and locked",
+                  data.circle.payoutOrderLocked,
+                ],
+                [
+                  "Contribution amount and interval locked",
+                  data.circle.settingsLocked,
+                ],
+                [
+                  "Default and collateral rules locked",
+                  data.circle.rulesLocked,
+                ],
+              ] as [string, boolean][]
+            ).map(([label, complete]) => (
+              <div
+                key={label}
+                className="flex items-center justify-between rounded-xl border border-border bg-white p-4"
+              >
                 <span className="font-medium">{label}</span>
                 <StatusBadge status={complete ? "accepted" : "pending"} />
               </div>
@@ -764,51 +1161,94 @@ function CreatorDashboard({
 
           {!activationReady ? (
             <div className="mt-6 rounded-xl border border-[var(--color-warning-default)]/20 bg-[var(--color-warning-default)]/5 p-4 text-sm text-muted-foreground">
-              <p className="font-semibold text-[var(--color-text-default)]">Why can&apos;t I start the cycle yet?</p>
+              <p className="font-semibold text-[var(--color-text-default)]">
+                Why can&apos;t I start the cycle yet?
+              </p>
               <ul className="mt-2 list-inside list-disc space-y-1">
                 {readyMembers < MIN_CYCLE_MEMBERS ? (
-                  <li>Need at least {MIN_CYCLE_MEMBERS} members with validated collateral — {readyMembers} ready so far.</li>
+                  <li>
+                    Need at least {MIN_CYCLE_MEMBERS} members with validated
+                    collateral — {readyMembers} ready so far.
+                  </li>
                 ) : null}
                 {postedCollateral < data.members.length ? (
-                  <li>{data.members.length - postedCollateral} member{data.members.length - postedCollateral > 1 ? "s" : ""} still need{data.members.length - postedCollateral === 1 ? "s" : ""} to post collateral.</li>
+                  <li>
+                    {data.members.length - postedCollateral} member
+                    {data.members.length - postedCollateral > 1 ? "s" : ""}{" "}
+                    still need
+                    {data.members.length - postedCollateral === 1 ? "s" : ""} to
+                    post collateral.
+                  </li>
                 ) : null}
                 {acceptedMembers < data.members.length ? (
-                  <li>{data.members.length - acceptedMembers} invite{data.members.length - acceptedMembers > 1 ? "s" : ""} pending.</li>
+                  <li>
+                    {data.members.length - acceptedMembers} invite
+                    {data.members.length - acceptedMembers > 1 ? "s" : ""}{" "}
+                    pending.
+                  </li>
                 ) : null}
                 {acceptedAgreements < data.members.length ? (
-                  <li>{data.members.length - acceptedAgreements} agreement{data.members.length - acceptedAgreements > 1 ? "s" : ""} not yet accepted.</li>
+                  <li>
+                    {data.members.length - acceptedAgreements} agreement
+                    {data.members.length - acceptedAgreements > 1 ? "s" : ""}{" "}
+                    not yet accepted.
+                  </li>
                 ) : null}
-                {!data.circle.payoutOrderLocked ? <li>Payout order not locked.</li> : null}
-                {!data.circle.settingsLocked ? <li>Settings not locked.</li> : null}
+                {!data.circle.payoutOrderLocked ? (
+                  <li>Payout order not locked.</li>
+                ) : null}
+                {!data.circle.settingsLocked ? (
+                  <li>Settings not locked.</li>
+                ) : null}
                 {!data.circle.rulesLocked ? <li>Rules not locked.</li> : null}
               </ul>
             </div>
           ) : null}
 
-          <ActivateButton circleId={data.circle.id} ready={activationReady} status={data.circle.status} />
+          <ActivateButton
+            circleId={data.circle.id}
+            ready={activationReady}
+            status={data.circle.status}
+          />
         </SectionCard>
       </TabsContent>
 
       <TabsContent value="members">
-        <SectionCard title="Members & Collateral" description="Creator-only roster, collateral, payment, and restriction status.">
+        <SectionCard
+          title="Members & Collateral"
+          description="Creator-only roster, collateral, payment, and restriction status."
+        >
           <MemberTable members={data.members} />
         </SectionCard>
       </TabsContent>
 
       <TabsContent value="contributions">
-        <SectionCard title="Contribution Tracking" description="On-chain contribution verification is the primary flow.">
-          <ContributionTable contributions={data.contributions} members={data.members} asset={data.circle.contributionAsset} />
+        <SectionCard
+          title="Contribution Tracking"
+          description="On-chain contribution verification is the primary flow."
+        >
+          <ContributionTable
+            contributions={data.contributions}
+            members={data.members}
+            asset={data.circle.contributionAsset}
+          />
         </SectionCard>
       </TabsContent>
 
       <TabsContent value="payouts">
-        <SectionCard title="Payout Order" description="Once active, payout order cannot be changed.">
+        <SectionCard
+          title="Payout Order"
+          description="Once active, payout order cannot be changed."
+        >
           <PayoutTimeline payouts={data.payouts} members={data.members} />
         </SectionCard>
       </TabsContent>
 
       <TabsContent value="calendar">
-        <SectionCard title="Cycle Calendar" description="Contribution due dates, payout dates, grace windows, and status markers.">
+        <SectionCard
+          title="Cycle Calendar"
+          description="Contribution due dates, payout dates, grace windows, and status markers."
+        >
           <div className="mb-4 flex justify-end">
             <CalendarExportButton events={[]} circleName={data.circle.name} />
           </div>
@@ -823,22 +1263,50 @@ function CreatorDashboard({
       </TabsContent>
 
       <TabsContent value="defaults">
-        <DefaultProtectionCreatorView circle={data.circle} members={data.members} />
+        <DefaultProtectionCreatorView
+          circle={data.circle}
+          members={data.members}
+        />
       </TabsContent>
 
       <TabsContent value="audit">
-        <SectionCard title="Audit Log" description="Complete activity history — who joined, paid, received payouts, and when.">
+        <SectionCard
+          title="Audit Log"
+          description="Complete activity history — who joined, paid, received payouts, and when."
+        >
           <AuditLog events={data.auditEvents} members={data.members} />
         </SectionCard>
       </TabsContent>
 
       <TabsContent value="settings">
-        <SectionCard title="Pool Settings" description="Financial settings lock after activation; only non-financial metadata stays editable.">
+        <SectionCard
+          title="Pool Settings"
+          description="Financial settings lock after activation; only non-financial metadata stays editable."
+        >
           <div className="grid gap-3 md:grid-cols-2">
-            <StatCard label="Contribution" value={formatAmount(data.circle.contributionAmount, data.circle.contributionAsset)} icon={PiggyBank} />
-            <StatCard label="Interval" value={formatInterval(data.circle.intervalSeconds)} icon={CalendarDays} />
-            <StatCard label="Collateral" value={formatAmount(data.circle.collateralAmount, data.circle.contributionAsset)} icon={LockKeyhole} />
-            <StatCard label="Settings" value={data.circle.settingsLocked ? "Locked" : "Draft editable"} icon={Settings} />
+            <StatCard
+              label="Contribution"
+              value={formatAmount(
+                data.circle.contributionAmount,
+                data.circle.contributionAsset,
+              )}
+              icon={PiggyBank}
+            />
+            <StatCard
+              label="Interval"
+              value={formatInterval(data.circle.intervalSeconds)}
+              icon={CalendarDays}
+            />
+            <StatCard
+              label="Collateral"
+              value={`Dynamic (max ${formatAmount(calculateCollateral(data.circle.memberCount, data.circle.contributionAmount, 1), data.circle.contributionAsset)})`}
+              icon={LockKeyhole}
+            />
+            <StatCard
+              label="Settings"
+              value={data.circle.settingsLocked ? "Locked" : "Draft editable"}
+              icon={Settings}
+            />
           </div>
         </SectionCard>
       </TabsContent>
@@ -856,8 +1324,35 @@ function CreatorDashboard({
             if (!res.success) throw new Error(res.error);
           }}
           onCancel={async (reason) => {
-            const res = await cancelCircleAction(data.circle.id, reason);
+            const addressRes = await StellarWalletsKit.getAddress();
+            const creatorAddress = addressRes?.address;
+            if (!creatorAddress) {
+              throw new Error("Connect a Stellar testnet wallet first.");
+            }
+
+            if (!env.contractId) {
+              throw new Error("NEXT_PUBLIC_CIRCULO_CONTRACT_ID is not configured.");
+            }
+
+            toast.info("Preparing on-chain contract cancellation. Please sign the transaction...");
+
+            const { txXdr } = await triggerCancelCircleOnChain(
+              creatorAddress,
+              env.contractId,
+              data.circle.id
+            );
+
+            const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
+              networkPassphrase: env.sorobanNetworkPassphrase,
+              address: creatorAddress,
+            });
+
+            toast.info("Submitting cancellation transaction to Stellar Testnet...");
+            const { hash: txHash } = await submitSignedTransaction(signedTxXdr);
+
+            const res = await cancelCircleAction(data.circle.id, reason, txHash);
             if (!res.success) throw new Error(res.error);
+            toast.success("Circle successfully cancelled on-chain!");
           }}
         />
         <EmergencyRulesDisplay />
@@ -884,7 +1379,9 @@ function CreatorDashboard({
           ["settings", "Pool Settings"],
           ["emergency", "Emergency"],
         ].map(([value, label]) => (
-          <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
+          <TabsTrigger key={value} value={value}>
+            {label}
+          </TabsTrigger>
         ))}
       </TabsList>
       {tabContent}
@@ -899,9 +1396,12 @@ function MemberDashboard({
   data: MemberDashboardDTO;
   isTabContentOnly?: boolean;
 }) {
-  const [activeInviteNotification, setActiveInviteNotification] = useState<DashboardNotification | null>(null);
+  const [activeInviteNotification, setActiveInviteNotification] =
+    useState<DashboardNotification | null>(null);
   const [isAcceptingInvite, setIsAcceptingInvite] = useState(false);
-  const [inviteActionError, setInviteActionError] = useState<string | null>(null);
+  const [inviteActionError, setInviteActionError] = useState<string | null>(
+    null,
+  );
 
   const handleAcceptInvite = async () => {
     if (!activeInviteNotification) return;
@@ -916,25 +1416,29 @@ function MemberDashboard({
       const addressRes = await StellarWalletsKit.getAddress();
       const userAddress = addressRes?.address;
       if (!userAddress) {
-        throw new Error("Stellar wallet address not found. Please connect your wallet first.");
+        throw new Error(
+          "Stellar wallet address not found. Please connect your wallet first.",
+        );
       }
-      if (userAddress.toUpperCase() !== data.currentMember.walletAddress.toUpperCase()) {
-        throw new Error("Connect the Stellar wallet that received this invitation.");
+      if (
+        userAddress.toUpperCase() !==
+        data.currentMember.walletAddress.toUpperCase()
+      ) {
+        throw new Error(
+          "Connect the Stellar wallet that received this invitation.",
+        );
       }
 
       if (!env.contractId) {
         throw new Error("NEXT_PUBLIC_CIRCULO_CONTRACT_ID is not configured.");
       }
       const tokenContractId = getTokenContractId(data.circle.contributionAsset);
-      const collateralAmount = BigInt(
-        Math.round(data.circle.collateralAmount * 10_000_000)
-      );
 
-      const { txXdr } = await triggerContributeOnChain(
+      const { txXdr } = await triggerPostCollateralOnChain(
         userAddress,
         env.contractId,
+        circleId,
         tokenContractId,
-        collateralAmount.toString()
       );
 
       const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
@@ -945,17 +1449,20 @@ function MemberDashboard({
 
       const res = await acceptAgreementAction(circleId, notificationId, txHash);
       if (res.success) {
-        toast.success("Invitation accepted and collateral posted successfully!");
+        toast.success(
+          "Invitation accepted and collateral posted successfully!",
+        );
         setActiveInviteNotification(null);
       } else {
         throw new Error(res.error || "Failed to accept circle invitation.");
       }
-
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
       console.error("Invite acceptance error:", error);
       toast.error(error.message || "Failed to accept invite.");
-      setInviteActionError(error.message || "Failed to process on-chain transaction.");
+      setInviteActionError(
+        error.message || "Failed to process on-chain transaction.",
+      );
     } finally {
       setIsAcceptingInvite(false);
     }
@@ -965,25 +1472,62 @@ function MemberDashboard({
   const myContribution = data.contributions.find(
     (contribution) =>
       contribution.memberId === data.currentMember.id &&
-      contribution.roundId === currentRound?.id
+      contribution.roundId === currentRound?.id,
   );
-  const paidMembers = data.contributions.filter((contribution) => contribution.status === "paid").length;
-  const pendingMembers = data.contributions.filter((contribution) => ["pending", "due_now", "due_soon"].includes(contribution.status)).length;
-  const lateMembers = data.contributions.filter((contribution) => ["late", "grace_period", "missed"].includes(contribution.status)).length;
-  const postedCollateral = data.members.filter((m) => m.collateralStatus === "posted").length;
-  const missingContributions = data.members.length - data.contributions.filter(c => c.roundId === currentRound?.id && c.status === "paid").length;
+  const paidMembers = data.contributions.filter(
+    (contribution) => contribution.status === "paid",
+  ).length;
+  const pendingMembers = data.contributions.filter((contribution) =>
+    ["pending", "due_now", "due_soon"].includes(contribution.status),
+  ).length;
+  const lateMembers = data.contributions.filter((contribution) =>
+    ["late", "grace_period", "missed"].includes(contribution.status),
+  ).length;
+  const postedCollateral = data.members.filter(
+    (m) => m.collateralStatus === "posted",
+  ).length;
+  const missingContributions =
+    data.members.length -
+    data.contributions.filter(
+      (c) => c.roundId === currentRound?.id && c.status === "paid",
+    ).length;
 
   const tabContent = (
     <>
       <TabsContent value="overview" className="grid gap-6">
+        {data.circle.status === "cancelled" ? (
+          <Alert className="border-rose-500/20 bg-rose-50/50 text-rose-700">
+            <AlertTriangle className="size-4 text-rose-500" />
+            <AlertTitle className="font-bold text-rose-800">Circle Cancelled by Creator</AlertTitle>
+            <AlertDescription className="flex flex-col gap-3 mt-1.5 sm:flex-row sm:items-center sm:justify-between">
+              <span>This savings circle has been cancelled. If you previously deposited collateral, you can withdraw your funds back to your wallet.</span>
+              {data.currentMember.collateralStatus === "posted" ? (
+                <RefundButton
+                  circleId={data.circle.id}
+                  memberAddress={data.currentMember.walletAddress}
+                  asset={data.circle.contributionAsset}
+                />
+              ) : (
+                <span className="text-xs font-semibold text-rose-500 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-100">No collateral remaining</span>
+              )}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
         {data.currentMember.agreementStatus === "pending" ? (
           <Alert className="border-amber-500/20 bg-amber-500/5 text-amber-600">
             <AlertTriangle className="size-4 text-amber-500" />
             <AlertTitle>Pending Circle Agreement</AlertTitle>
             <AlertDescription className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-              <span>You have been invited to join this rotating savings circle. Please read and accept the agreement rules to participate.</span>
+              <span>
+                You have been invited to join this rotating savings circle.
+                Please read and accept the agreement rules to participate.
+              </span>
               <Link href={`/dashboard/${data.circle.id}/agreement`} passHref>
-                <Button size="sm" className="bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-sm">
+                <Button
+                  size="sm"
+                  className="bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-sm"
+                >
                   Review & Join
                 </Button>
               </Link>
@@ -999,11 +1543,38 @@ function MemberDashboard({
         />
         <CircleStatusBanner status={data.circle.status} />
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <StatCard label="Collateral Posted" value={`${postedCollateral} / ${data.members.length}`} icon={LockKeyhole} />
-          <StatCard label="Current Round" value={`Round ${data.circle.currentRound}`} detail={`of ${data.circle.totalRounds}`} icon={CalendarDays} />
-          <StatCard label="Collected" value={formatAmount(currentRound?.collectedAmount ?? 0, data.circle.contributionAmount > 0 ? data.circle.contributionAsset : "")} detail={`Expected ${formatAmount(currentRound?.expectedAmount ?? 0, data.circle.contributionAmount > 0 ? data.circle.contributionAsset : "")}`} icon={PiggyBank} />
-          <StatCard label="Next Due" value={formatDate(currentRound?.dueAt ?? null)} icon={ClipboardCheck} />
-          <StatCard label="Missing Contributions" value={`${Math.max(0, missingContributions)} member${missingContributions === 1 ? "" : "s"}`} icon={ShieldAlert} />
+          <StatCard
+            label="Collateral Posted"
+            value={`${postedCollateral} / ${data.members.length}`}
+            icon={LockKeyhole}
+          />
+          <StatCard
+            label="Current Round"
+            value={`Round ${data.circle.currentRound}`}
+            detail={`of ${data.circle.totalRounds}`}
+            icon={CalendarDays}
+          />
+          <StatCard
+            label="Collected"
+            value={formatAmount(
+              currentRound?.collectedAmount ?? 0,
+              data.circle.contributionAmount > 0
+                ? data.circle.contributionAsset
+                : "",
+            )}
+            detail={`Expected ${formatAmount(currentRound?.expectedAmount ?? 0, data.circle.contributionAmount > 0 ? data.circle.contributionAsset : "")}`}
+            icon={PiggyBank}
+          />
+          <StatCard
+            label="Next Due"
+            value={formatDate(currentRound?.dueAt ?? null)}
+            icon={ClipboardCheck}
+          />
+          <StatCard
+            label="Missing Contributions"
+            value={`${Math.max(0, missingContributions)} member${missingContributions === 1 ? "" : "s"}`}
+            icon={ShieldAlert}
+          />
         </div>
       </TabsContent>
 
@@ -1014,24 +1585,69 @@ function MemberDashboard({
           totalRounds={data.circle.totalRounds}
         />
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <StatCard label="Your Due" value={formatAmount(myContribution?.amountDue ?? data.circle.contributionAmount, data.circle.contributionAsset)} icon={PiggyBank} />
-          <StatCard label="Due Date" value={formatDate(currentRound?.dueAt ?? null)} icon={CalendarDays} />
-          <StatCard label="Your Payout" value={`Round ${data.currentMember.payoutRound}`} icon={WalletCards} />
-          <StatCard label="Collateral" value={titleCase(data.currentMember.collateralStatus)} icon={LockKeyhole} />
-          <StatCard label="Status" value={titleCase(data.currentMember.restrictionStatus === "clear" ? data.currentMember.paymentStatus : data.currentMember.restrictionStatus)} icon={ShieldCheck} />
+          <StatCard
+            label="Your Due"
+            value={formatAmount(
+              myContribution?.amountDue ?? data.circle.contributionAmount,
+              data.circle.contributionAsset,
+            )}
+            icon={PiggyBank}
+          />
+          <StatCard
+            label="Due Date"
+            value={formatDate(currentRound?.dueAt ?? null)}
+            icon={CalendarDays}
+          />
+          <StatCard
+            label="Your Payout"
+            value={`Round ${data.currentMember.payoutRound}`}
+            icon={WalletCards}
+          />
+          <StatCard
+            label="Collateral"
+            value={titleCase(data.currentMember.collateralStatus)}
+            icon={LockKeyhole}
+          />
+          <StatCard
+            label="Status"
+            value={titleCase(
+              data.currentMember.restrictionStatus === "clear"
+                ? data.currentMember.paymentStatus
+                : data.currentMember.restrictionStatus,
+            )}
+            icon={ShieldCheck}
+          />
         </div>
       </TabsContent>
 
       <TabsContent value="pay">
-        <SectionCard title="Pay Contribution" description="Use wallet payment and on-chain verification as the main flow.">
+        <SectionCard
+          title="Pay Contribution"
+          description="Use wallet payment and on-chain verification as the main flow."
+        >
           <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
             <div>
-              <p className="text-3xl font-semibold">{formatAmount(myContribution?.amountDue ?? data.circle.contributionAmount, data.circle.contributionAsset)}</p>
-              <p className="mt-2 text-muted-foreground">Due {formatDate(currentRound?.dueAt ?? null)}</p>
-              <div className="mt-4"><StatusBadge status={myContribution?.status ?? "not_due"} /></div>
+              <p className="text-3xl font-semibold">
+                {formatAmount(
+                  myContribution?.amountDue ?? data.circle.contributionAmount,
+                  data.circle.contributionAsset,
+                )}
+              </p>
+              <p className="mt-2 text-muted-foreground">
+                Due {formatDate(currentRound?.dueAt ?? null)}
+              </p>
+              <div className="mt-4">
+                <StatusBadge status={myContribution?.status ?? "not_due"} />
+              </div>
             </div>
             <div className="flex flex-wrap gap-3">
-              <Button>Pay {formatAmount(data.circle.contributionAmount, data.circle.contributionAsset)}</Button>
+              <Button>
+                Pay{" "}
+                {formatAmount(
+                  data.circle.contributionAmount,
+                  data.circle.contributionAsset,
+                )}
+              </Button>
               <Button variant="outline">View transaction</Button>
             </div>
           </div>
@@ -1039,31 +1655,65 @@ function MemberDashboard({
       </TabsContent>
 
       <TabsContent value="timeline">
-        <SectionCard title="Payout Timeline" description="Payout order was locked before activation. Members can view it, not edit it.">
+        <SectionCard
+          title="Payout Timeline"
+          description="Payout order was locked before activation. Members can view it, not edit it."
+        >
           <PayoutTimeline payouts={data.payouts} members={data.members} />
         </SectionCard>
       </TabsContent>
 
       <TabsContent value="transparency" className="grid gap-6">
-        <SectionCard title="Group Transparency" description="Member-safe pool health without creator-only settings.">
+        <SectionCard
+          title="Group Transparency"
+          description="Member-safe pool health without creator-only settings."
+        >
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Paid" value={String(paidMembers)} icon={ShieldCheck} />
-            <StatCard label="Pending" value={String(pendingMembers)} icon={ClipboardCheck} />
-            <StatCard label="Late" value={String(lateMembers)} icon={ShieldAlert} />
-            <StatCard label="Collected" value={formatAmount(currentRound?.collectedAmount ?? 0, data.circle.contributionAsset)} icon={PiggyBank} />
+            <StatCard
+              label="Paid"
+              value={String(paidMembers)}
+              icon={ShieldCheck}
+            />
+            <StatCard
+              label="Pending"
+              value={String(pendingMembers)}
+              icon={ClipboardCheck}
+            />
+            <StatCard
+              label="Late"
+              value={String(lateMembers)}
+              icon={ShieldAlert}
+            />
+            <StatCard
+              label="Collected"
+              value={formatAmount(
+                currentRound?.collectedAmount ?? 0,
+                data.circle.contributionAsset,
+              )}
+              icon={PiggyBank}
+            />
           </div>
         </SectionCard>
-        <SectionCard title="Activity History" description="Record of who joined, paid, received payouts, and when.">
+        <SectionCard
+          title="Activity History"
+          description="Record of who joined, paid, received payouts, and when."
+        >
           <AuditLog events={data.auditEvents} members={data.members} />
         </SectionCard>
       </TabsContent>
 
       <TabsContent value="collateral">
-        <DefaultProtectionMemberView circle={data.circle} member={data.currentMember} />
+        <DefaultProtectionMemberView
+          circle={data.circle}
+          member={data.currentMember}
+        />
       </TabsContent>
 
       <TabsContent value="rules" className="grid gap-6">
-        <SectionCard title="Rules & Agreement" description="Short, explicit participation boundaries.">
+        <SectionCard
+          title="Rules & Agreement"
+          description="Short, explicit participation boundaries."
+        >
           <div className="grid gap-3">
             {[
               "This is not an investment, lending product, yield product, or public fundraiser.",
@@ -1072,7 +1722,12 @@ function MemberDashboard({
               "The contract pays members directly. Circulo does not custody funds.",
               "Cash-in and cash-out are handled by licensed partners, not Circulo.",
             ].map((rule) => (
-              <div key={rule} className="rounded-xl border border-border bg-white p-4 text-sm leading-6">{rule}</div>
+              <div
+                key={rule}
+                className="rounded-xl border border-border bg-white p-4 text-sm leading-6"
+              >
+                {rule}
+              </div>
             ))}
           </div>
         </SectionCard>
@@ -1080,17 +1735,23 @@ function MemberDashboard({
       </TabsContent>
 
       <TabsContent value="notifications" className="grid gap-6">
-        <SectionCard title="Notifications" description="Member-facing status updates and action reminders.">
+        <SectionCard
+          title="Notifications"
+          description="Member-facing status updates and action reminders."
+        >
           {data.notifications.length > 0 ? (
             <div className="grid gap-3">
               {data.notifications.map((notification) => {
-                const isInvite = notification.notificationType === "invite" && !notification.readAt;
+                const isInvite =
+                  notification.notificationType === "invite" &&
+                  !notification.readAt;
                 return (
                   <div
                     key={notification.id}
                     className={cn(
                       "rounded-xl border border-border bg-white p-4 transition-all",
-                      isInvite && "cursor-pointer hover:border-indigo-500/50 hover:bg-indigo-500/[0.01]"
+                      isInvite &&
+                        "cursor-pointer hover:border-indigo-500/50 hover:bg-indigo-500/[0.01]",
                     )}
                     onClick={() => {
                       if (isInvite) {
@@ -1102,14 +1763,21 @@ function MemberDashboard({
                       <div className="flex items-center gap-2">
                         <p className="font-semibold">{notification.title}</p>
                         {isInvite && (
-                          <Badge variant="outline" className="text-xs bg-indigo-500/10 text-indigo-500 border-indigo-500/20 font-medium">
+                          <Badge
+                            variant="outline"
+                            className="text-xs bg-indigo-500/10 text-indigo-500 border-indigo-500/20 font-medium"
+                          >
                             Action Required
                           </Badge>
                         )}
                       </div>
-                      <StatusBadge status={notification.readAt ? "completed" : "pending"} />
+                      <StatusBadge
+                        status={notification.readAt ? "completed" : "pending"}
+                      />
                     </div>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">{notification.body}</p>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {notification.body}
+                    </p>
                     {isInvite && (
                       <p className="mt-3 text-xs text-indigo-500 font-semibold flex items-center gap-1">
                         Click to review invitation & deposit collateral →
@@ -1120,7 +1788,9 @@ function MemberDashboard({
               })}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No notifications yet.</p>
+            <p className="text-sm text-muted-foreground">
+              No notifications yet.
+            </p>
           )}
         </SectionCard>
         <ReminderSettingsPanel
@@ -1141,7 +1811,8 @@ function MemberDashboard({
           <DialogHeader>
             <DialogTitle>Savings Circle Invitation</DialogTitle>
             <DialogDescription>
-              Confirm your participation in the savings circle and post your collateral deposit.
+              Confirm your participation in the savings circle and post your
+              collateral deposit.
             </DialogDescription>
           </DialogHeader>
 
@@ -1150,25 +1821,43 @@ function MemberDashboard({
               <div className="rounded-xl border border-border bg-slate-50 p-4 space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Circle Name</span>
-                  <span className="font-semibold text-foreground">{data.circle.name}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Contribution Amount</span>
                   <span className="font-semibold text-foreground">
-                    {data.circle.contributionAmount} {data.circle.contributionAsset}
+                    {data.circle.name}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Collateral Required</span>
+                  <span className="text-muted-foreground">
+                    Contribution Amount
+                  </span>
+                  <span className="font-semibold text-foreground">
+                    {data.circle.contributionAmount}{" "}
+                    {data.circle.contributionAsset}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    Collateral Required
+                  </span>
                   <span className="font-bold text-indigo-600">
-                    {data.circle.collateralAmount} {data.circle.contributionAsset}
+                    {calculateCollateral(
+                      data.circle.memberCount,
+                      data.circle.contributionAmount,
+                      data.currentMember.payoutRound,
+                    )}{" "}
+                    {data.circle.contributionAsset}
                   </span>
                 </div>
               </div>
 
               <div className="text-xs text-muted-foreground bg-indigo-50 border border-indigo-100 p-3 rounded-xl leading-5">
-                <span className="font-bold text-indigo-600 block mb-1">🔒 Non-Custodial Escrow Security</span>
-                Accepting this invitation requires you to deposit the collateral to the circle&apos;s automated smart contract escrow. The platform operators never hold or control your funds. The deposit will be automatically deducted from your connected Stellar wallet.
+                <span className="font-bold text-indigo-600 block mb-1">
+                  🔒 Non-Custodial Escrow Security
+                </span>
+                Accepting this invitation requires you to deposit the collateral
+                to the circle&apos;s automated smart contract escrow. The
+                platform operators never hold or control your funds. The deposit
+                will be automatically deducted from your connected Stellar
+                wallet.
               </div>
 
               {inviteActionError && (
@@ -1227,7 +1916,9 @@ function MemberDashboard({
           ["rules", "Rules & Agreement"],
           ["notifications", "Notifications"],
         ].map(([value, label]) => (
-          <TabsTrigger key={value} value={value}>{label}</TabsTrigger>
+          <TabsTrigger key={value} value={value}>
+            {label}
+          </TabsTrigger>
         ))}
       </TabsList>
       {tabContent}
@@ -1239,7 +1930,9 @@ function DashboardEmptyState({ configured }: { configured: boolean }) {
   return (
     <EmptyState
       icon={<UsersRound className="size-8" />}
-      title={configured ? "No circle dashboard yet" : "Supabase is not configured"}
+      title={
+        configured ? "No circle dashboard yet" : "Supabase is not configured"
+      }
       description={
         configured
           ? "Once you create or accept an invite-only pool, your creator or member dashboard will appear here."
@@ -1264,4 +1957,112 @@ export function DashboardViews({
     return <MemberDashboard data={data} isTabContentOnly={isTabContentOnly} />;
   }
   return <DashboardEmptyState configured={data.configured} />;
+}
+
+function RefundButton({
+  circleId,
+  memberAddress,
+  asset,
+}: {
+  circleId: string;
+  memberAddress: string;
+  asset: string;
+}) {
+  const [loading, setLoading] = useState(false);
+
+  async function handleRefund() {
+    setLoading(true);
+    try {
+      const addressRes = await StellarWalletsKit.getAddress();
+      const currentAddress = addressRes?.address;
+      if (!currentAddress || currentAddress.toUpperCase() !== memberAddress.toUpperCase()) {
+        throw new Error(`Connect the wallet address: ${memberAddress}`);
+      }
+
+      if (!env.contractId) {
+        throw new Error("NEXT_PUBLIC_CIRCULO_CONTRACT_ID is not configured.");
+      }
+
+      toast.info("Preparing on-chain collateral refund transaction. Please sign...");
+
+      const tokenContractId = getTokenContractId(asset);
+      const { txXdr } = await triggerClaimRefundOnChain(
+        memberAddress,
+        env.contractId,
+        circleId,
+        tokenContractId
+      );
+
+      const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
+        networkPassphrase: env.sorobanNetworkPassphrase,
+        address: memberAddress,
+      });
+
+      toast.info("Submitting refund transaction to Stellar Testnet...");
+      const { hash } = await submitSignedTransaction(signedTxXdr);
+
+      const res = await logCollateralRefundAction(circleId, memberAddress, hash);
+      if (res.success) {
+        toast.success("Collateral successfully refunded to your wallet!");
+      } else {
+        throw new Error(res.error || "Failed to complete refund logging.");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Refund failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Button
+      size="sm"
+      disabled={loading}
+      onClick={handleRefund}
+      className="bg-rose-600 hover:bg-rose-700 text-white font-semibold shadow-sm flex items-center gap-1.5"
+    >
+      {loading ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowDownCircle className="size-3.5" />}
+      Claim Refund
+    </Button>
+  );
+}
+
+function DeleteCircleButton({ circleId }: { circleId: string }) {
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+
+  async function handleDelete() {
+    if (!confirm("Are you absolutely sure you want to permanently delete this circle? This action cannot be undone.")) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await deleteCircleAction(circleId);
+      if (res.success) {
+        toast.success("Circle permanently deleted.");
+        router.push("/dashboard");
+        router.refresh();
+      } else {
+        throw new Error(res.error || "Failed to delete circle.");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Button
+      size="sm"
+      variant="destructive"
+      disabled={loading}
+      onClick={handleDelete}
+      className="font-semibold shadow-sm flex items-center gap-1.5 hover:bg-rose-700"
+    >
+      {loading ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+      Delete Circle
+    </Button>
+  );
 }

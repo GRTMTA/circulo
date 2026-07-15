@@ -343,7 +343,7 @@ export async function resumeCircleAction(circleId: string) {
   return { success: true };
 }
 
-export async function cancelCircleAction(circleId: string, reason: string) {
+export async function cancelCircleAction(circleId: string, reason: string, txHash?: string) {
   const authContext = await requireAuthenticatedUser("/dashboard");
   if (!authContext.configured || !authContext.user) {
     return { success: false, error: "Not authenticated" };
@@ -378,6 +378,7 @@ export async function cancelCircleAction(circleId: string, reason: string) {
     circle_id: circleId,
     event_type: "circle_cancelled",
     member_id: null,
+    tx_hash: txHash || null,
     metadata: { reason: reason.trim() },
   });
 
@@ -511,6 +512,7 @@ export async function acceptAgreementAction(
       txHash,
       member.wallet_address,
       env.contractId,
+      circleId,
       tokenContractId,
       amount.toString()
     );
@@ -635,5 +637,113 @@ export async function activateCircleAction(circleId: string) {
   revalidatePath(`/dashboard/${circleId}`);
   revalidatePath("/dashboard", "layout");
 
+  return { success: true };
+}
+
+export async function logCircleInitializationAction(circleId: string, txHash: string) {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const supabase = await createServerSupabaseClient();
+
+  const { error } = await supabase.from("audit_events").insert({
+    circle_id: circleId,
+    event_type: "initialize",
+    tx_hash: txHash,
+    metadata: { initialized_by: authContext.user.id },
+  });
+
+  if (error) {
+    console.error("Initialization log error:", error);
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
+}
+
+export async function logCollateralRefundAction(circleId: string, memberAddress: string, txHash: string) {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const supabase = await createServerSupabaseClient();
+
+  const { data: member } = await supabase
+    .from("circle_members")
+    .select("id")
+    .eq("circle_id", circleId)
+    .eq("wallet_address", memberAddress)
+    .single();
+
+  if (!member) {
+    return { success: false, error: "Member not found" };
+  }
+
+  const { error: updateError } = await supabase
+    .from("circle_members")
+    .update({ collateral_status: "not_posted" })
+    .eq("id", member.id);
+
+  if (updateError) {
+    return { success: false, error: updateError.message };
+  }
+
+  await supabase.from("audit_events").insert({
+    circle_id: circleId,
+    member_id: member.id,
+    event_type: "collateral_refunded",
+    tx_hash: txHash,
+  });
+
+  revalidatePath(`/dashboard/${circleId}`);
+  return { success: true };
+}
+
+export async function deleteCircleAction(circleId: string) {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const supabase = await createServerSupabaseClient();
+
+  const { data: circle } = await supabase
+    .from("circles")
+    .select("creator_id, status")
+    .eq("id", circleId)
+    .single();
+
+  if (!circle) {
+    return { success: false, error: "Circle not found" };
+  }
+
+  if (circle.creator_id !== authContext.user.id) {
+    return { success: false, error: "Only the creator can delete this circle" };
+  }
+
+  if (circle.status !== "cancelled" && circle.status !== "draft") {
+    return { success: false, error: "Only cancelled or draft circles can be deleted" };
+  }
+
+  // Delete all dependencies explicitly to prevent foreign key constraint issues
+  await supabase.from("audit_events").delete().eq("circle_id", circleId);
+  await supabase.from("notifications").delete().eq("circle_id", circleId);
+  await supabase.from("contributions").delete().eq("circle_id", circleId);
+  await supabase.from("circle_rounds").delete().eq("circle_id", circleId);
+  await supabase.from("circle_members").delete().eq("circle_id", circleId);
+
+  const { error } = await supabase
+    .from("circles")
+    .delete()
+    .eq("id", circleId);
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/dashboard", "layout");
   return { success: true };
 }

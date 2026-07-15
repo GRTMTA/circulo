@@ -12,6 +12,7 @@ const meta = {
     rules: agreementRulesFixture,
     collateralAmount: 5,
     contributionAsset: "USDC",
+    memberWalletAddress: "GAAAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNOOOPPPQQQRRR2",
   },
 } satisfies Meta<typeof MemberAgreementScreen>;
 

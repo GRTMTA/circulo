@@ -35,7 +35,8 @@ export function CreateBasicsStep({
 
   const intervalSelectValue = isCustom ? "custom" : String(values.intervalSeconds);
 
-  function handleIntervalSelect(value: string) {
+  function handleIntervalSelect(value: string | null) {
+    if (!value) return;
     if (value === "custom") {
       setIsCustom(true);
       onChange({ ...values, intervalSeconds: toIntervalSeconds(Number(customValue) || 0, customUnit) });

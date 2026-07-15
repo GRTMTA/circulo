@@ -10,16 +10,18 @@ pub struct CirculoContract;
 
 #[contractimpl]
 impl CirculoContract {
-    /// Initializes the rotating savings circle with config parameters
+    /// Initializes the rotating savings circle with config parameters using a composite key
     pub fn initialize(
         env: Env,
+        circle_id: u128,
         creator: Address,
         contribution_amount: i128,
         collateral_amount: i128,
         interval_seconds: u64,
         members: Vec<Address>,
     ) {
-        if env.storage().instance().has(&symbol_short!("creator")) {
+        let key_creator = (symbol_short!("creator"), circle_id);
+        if env.storage().instance().has(&key_creator) {
             panic!("already initialized");
         }
         if contribution_amount <= 0 || collateral_amount <= 0 || interval_seconds == 0 {
@@ -27,33 +29,36 @@ impl CirculoContract {
         }
         creator.require_auth();
 
-        env.storage().instance().set(&symbol_short!("creator"), &creator);
+        env.storage().instance().set(&key_creator, &creator);
         env.storage()
             .instance()
-            .set(&symbol_short!("contrib"), &contribution_amount);
+            .set(&(symbol_short!("contrib"), circle_id), &contribution_amount);
         env.storage()
             .instance()
-            .set(&symbol_short!("collat"), &collateral_amount);
+            .set(&(symbol_short!("collat"), circle_id), &collateral_amount);
         env.storage()
             .instance()
-            .set(&symbol_short!("interval"), &interval_seconds);
-        env.storage().instance().set(&symbol_short!("members"), &members);
+            .set(&(symbol_short!("interval"), circle_id), &interval_seconds);
         env.storage()
             .instance()
-            .set(&symbol_short!("status"), &symbol_short!("draft"));
+            .set(&(symbol_short!("members"), circle_id), &members);
+        env.storage()
+            .instance()
+            .set(&(symbol_short!("status"), circle_id), &symbol_short!("draft"));
     }
 
     /// Returns the current circle state (e.g. 'draft', 'active')
-    pub fn status(env: Env) -> Symbol {
+    pub fn status(env: Env, circle_id: u128) -> Symbol {
         env.storage()
             .instance()
-            .get(&symbol_short!("status"))
+            .get(&(symbol_short!("status"), circle_id))
             .unwrap_or(symbol_short!("draft"))
     }
 
     /// Activates the rotating savings circle (only executable by creator)
-    pub fn activate(env: Env, admin: Address) {
-        let creator: Address = env.storage().instance().get(&symbol_short!("creator")).unwrap();
+    pub fn activate(env: Env, circle_id: u128, admin: Address) {
+        let key_creator = (symbol_short!("creator"), circle_id);
+        let creator: Address = env.storage().instance().get(&key_creator).unwrap();
         admin.require_auth();
 
         if admin != creator {
@@ -62,33 +67,94 @@ impl CirculoContract {
 
         env.storage()
             .instance()
-            .set(&symbol_short!("status"), &symbol_short!("active"));
+            .set(&(symbol_short!("status"), circle_id), &symbol_short!("active"));
     }
 
-    /// Pulls the contribution amount from the member's wallet address directly
-    /// into the smart contract's unique address acting as the non-custodial escrow vault.
-    pub fn contribute(env: Env, member: Address, token_id: Address, amount: i128) {
-        if amount <= 0 {
-            panic!("amount must be positive");
+    /// Returns true if the circle has been initialized on-chain
+    pub fn is_initialized(env: Env, circle_id: u128) -> bool {
+        env.storage().instance().has(&(symbol_short!("creator"), circle_id))
+    }
+
+    /// Allows a member to post their dynamically calculated collateral on-chain.
+    /// The contract computes the required amount as: (N - k) * A
+    /// and pulls exactly that amount from the member's wallet.
+    pub fn post_collateral(env: Env, circle_id: u128, member: Address, token_id: Address) {
+        let key_creator = (symbol_short!("creator"), circle_id);
+        if !env.storage().instance().has(&key_creator) {
+            panic!("circle is not initialized");
         }
 
         let status: Symbol = env
             .storage()
             .instance()
-            .get(&symbol_short!("status"))
+            .get(&(symbol_short!("status"), circle_id))
             .unwrap_or(symbol_short!("draft"));
-        if status != symbol_short!("draft") && status != symbol_short!("active") {
-            panic!("circle does not accept contributions");
+        if status != symbol_short!("draft") {
+            panic!("collateral can only be posted during draft state");
         }
 
         let members: Vec<Address> = env
             .storage()
             .instance()
-            .get(&symbol_short!("members"))
+            .get(&(symbol_short!("members"), circle_id))
+            .unwrap();
+        
+        let index = members.first_index_of(&member).unwrap_or_else(|| {
+            panic!("not a circle member");
+        });
+        let payout_round = index + 1; // 1-indexed round position (k)
+
+        let contribution_amount: i128 = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("contrib"), circle_id))
+            .unwrap();
+
+        let num_members = members.len();
+        // Mathematical Model: required_collateral = (N - k) * A
+        let required_collateral = ((num_members - payout_round) as i128) * contribution_amount;
+
+        if required_collateral > 0 {
+            member.require_auth();
+
+            // Create standard token client for transfer execution
+            let token_client = token::Client::new(&env, &token_id);
+
+            // Pull funds directly from member address to this contract's address
+            token_client.transfer(&member, &env.current_contract_address(), &required_collateral);
+        }
+    }
+
+    /// Pulls the regular round contribution amount from the member's wallet address.
+    pub fn contribute(env: Env, circle_id: u128, member: Address, token_id: Address) {
+        let key_creator = (symbol_short!("creator"), circle_id);
+        if !env.storage().instance().has(&key_creator) {
+            panic!("circle is not initialized");
+        }
+
+        let status: Symbol = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("status"), circle_id))
+            .unwrap_or(symbol_short!("draft"));
+        if status != symbol_short!("active") {
+            panic!("circle is not active");
+        }
+
+        let members: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("members"), circle_id))
             .unwrap();
         if !members.contains(&member) {
             panic!("not a circle member");
         }
+
+        let contribution_amount: i128 = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("contrib"), circle_id))
+            .unwrap();
 
         member.require_auth();
 
@@ -96,42 +162,135 @@ impl CirculoContract {
         let token_client = token::Client::new(&env, &token_id);
 
         // Pull funds directly from member address to this contract's address
-        token_client.transfer(&member, &env.current_contract_address(), &amount);
+        token_client.transfer(&member, &env.current_contract_address(), &contribution_amount);
     }
 
     /// Moves the accumulated round pool amount straight from the smart contract escrow balance
     /// directly to the designated round recipient address in a single atomic operation.
     pub fn execute_payout(
         env: Env,
+        circle_id: u128,
         admin: Address,
         token_id: Address,
         recipient: Address,
-        total_pool: i128,
     ) {
-        if total_pool <= 0 {
-            panic!("amount must be positive");
-        }
-
         let status: Symbol = env
             .storage()
             .instance()
-            .get(&symbol_short!("status"))
+            .get(&(symbol_short!("status"), circle_id))
             .unwrap_or(symbol_short!("draft"));
         if status != symbol_short!("active") {
             panic!("circle is not active");
         }
 
-        let creator: Address = env.storage().instance().get(&symbol_short!("creator")).unwrap();
+        let creator: Address = env.storage().instance().get(&(symbol_short!("creator"), circle_id)).unwrap();
         admin.require_auth();
         if admin != creator {
             panic!("only creator can execute payout");
         }
+
+        let members: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("members"), circle_id))
+            .unwrap();
+        
+        let contribution_amount: i128 = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("contrib"), circle_id))
+            .unwrap();
+
+        // Calculate total pool = N * A
+        let total_pool = (members.len() as i128) * contribution_amount;
 
         // Create standard token client for transfer execution
         let token_client = token::Client::new(&env, &token_id);
 
         // Transfer funds directly from this contract's escrow address to the recipient
         token_client.transfer(&env.current_contract_address(), &recipient, &total_pool);
+    }
+
+    /// Cancels the circle on-chain, preventing any further round contributions or payouts.
+    /// Transitions status to "cancelled" which unlocks collateral refunds for all members.
+    pub fn cancel_circle(env: Env, circle_id: u128, admin: Address) {
+        let key_creator = (symbol_short!("creator"), circle_id);
+        if !env.storage().instance().has(&key_creator) {
+            panic!("circle is not initialized");
+        }
+        let creator: Address = env.storage().instance().get(&key_creator).unwrap();
+        admin.require_auth();
+
+        if admin != creator {
+            panic!("only creator can cancel");
+        }
+
+        let status: Symbol = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("status"), circle_id))
+            .unwrap_or(symbol_short!("draft"));
+        if status == Symbol::new(&env, "cancelled") {
+            panic!("already cancelled");
+        }
+
+        env.storage()
+            .instance()
+            .set(&(symbol_short!("status"), circle_id), &Symbol::new(&env, "cancelled"));
+    }
+
+    /// Allows a member to claim their posted collateral refund back if the circle is cancelled.
+    pub fn claim_refund(env: Env, circle_id: u128, member: Address, token_id: Address) {
+        let key_creator = (symbol_short!("creator"), circle_id);
+        if !env.storage().instance().has(&key_creator) {
+            panic!("circle is not initialized");
+        }
+
+        let status: Symbol = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("status"), circle_id))
+            .unwrap_or(symbol_short!("draft"));
+        if status != Symbol::new(&env, "cancelled") {
+            panic!("circle is not cancelled");
+        }
+
+        let members: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("members"), circle_id))
+            .unwrap();
+        
+        let index = members.first_index_of(&member).unwrap_or_else(|| {
+            panic!("not a circle member");
+        });
+        let payout_round = index + 1;
+
+        let key_refunded = (Symbol::new(&env, "refunded"), circle_id, member.clone());
+        if env.storage().instance().has(&key_refunded) {
+            panic!("already refunded");
+        }
+
+        let contribution_amount: i128 = env
+            .storage()
+            .instance()
+            .get(&(symbol_short!("contrib"), circle_id))
+            .unwrap();
+
+        let num_members = members.len();
+        // Mathematical Model: collateral_to_refund = (N - k) * A
+        let collateral_to_refund = ((num_members - payout_round) as i128) * contribution_amount;
+
+        if collateral_to_refund > 0 {
+            member.require_auth();
+
+            // Checks-Effects-Interactions: mark as refunded before transferring
+            env.storage().instance().set(&key_refunded, &true);
+
+            // Return the collateral to the member's wallet address
+            let token_client = token::Client::new(&env, &token_id);
+            token_client.transfer(&env.current_contract_address(), &member, &collateral_to_refund);
+        }
     }
 }
 
@@ -147,10 +306,12 @@ mod test {
         let client = CirculoContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let member = Address::generate(&env);
+        let circle_id = 999u128;
 
         env.mock_all_auths();
 
         client.initialize(
+            &circle_id,
             &creator,
             &10_0000000,
             &5_0000000,
@@ -158,11 +319,11 @@ mod test {
             &vec![&env, creator.clone(), member],
         );
 
-        assert_eq!(client.status(), symbol_short!("draft"));
+        assert_eq!(client.status(&circle_id), symbol_short!("draft"));
 
-        client.activate(&creator);
+        client.activate(&circle_id, &creator);
 
-        assert_eq!(client.status(), symbol_short!("active"));
+        assert_eq!(client.status(&circle_id), symbol_short!("active"));
     }
 
     #[test]
@@ -173,17 +334,21 @@ mod test {
         
         let creator = Address::generate(&env);
         let member = Address::generate(&env);
+        let circle_id = 12345u128;
         
         let token_admin = Address::generate(&env);
         let token_address = env.register_stellar_asset_contract(token_admin.clone());
         let token = token::Client::new(&env, &token_address);
         let token_admin_client = token::StellarAssetClient::new(&env, &token_address);
 
+        token_admin_client.mint(&creator, &1000);
         token_admin_client.mint(&member, &1000);
+        assert_eq!(token.balance(&creator), 1000);
         assert_eq!(token.balance(&member), 1000);
 
         env.mock_all_auths();
         client.initialize(
+            &circle_id,
             &creator,
             &600,
             &600,
@@ -191,17 +356,26 @@ mod test {
             &vec![&env, creator.clone(), member.clone()],
         );
 
-        // Member posts funds while the circle is in draft.
-        client.contribute(&member, &token_address, &600);
-        assert_eq!(token.balance(&member), 400);
+        // Creator posts collateral (k = 1, N = 2, required = (2 - 1) * 600 = 600)
+        client.post_collateral(&circle_id, &creator, &token_address);
+        assert_eq!(token.balance(&creator), 400);
         assert_eq!(token.balance(&contract_id), 600);
 
-        client.activate(&creator);
+        // Member posts collateral (k = 2, N = 2, required = (2 - 2) * 600 = 0)
+        client.post_collateral(&circle_id, &member, &token_address);
+        assert_eq!(token.balance(&member), 1000);
 
-        // Execute payout to designated recipient
+        client.activate(&circle_id, &creator);
+
+        // Member pays contribution round (600)
+        client.contribute(&circle_id, &member, &token_address);
+        assert_eq!(token.balance(&member), 400);
+        assert_eq!(token.balance(&contract_id), 1200);
+
+        // Execute payout to designated recipient (N * A = 2 * 600 = 1200)
         let recipient = Address::generate(&env);
-        client.execute_payout(&creator, &token_address, &recipient, &600);
+        client.execute_payout(&circle_id, &creator, &token_address, &recipient);
         assert_eq!(token.balance(&contract_id), 0);
-        assert_eq!(token.balance(&recipient), 600);
+        assert_eq!(token.balance(&recipient), 1200);
     }
 }

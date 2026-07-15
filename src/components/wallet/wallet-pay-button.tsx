@@ -14,11 +14,13 @@ import {
 } from "@/services/contractService";
 
 export function WalletPayButton({
+  circleId,
   amount,
   asset,
   dueDate,
   status,
 }: {
+  circleId: string;
   amount: number;
   asset: string;
   dueDate: string | null;
@@ -37,12 +39,11 @@ export function WalletPayButton({
       }
 
       const tokenContractId = getTokenContractId(asset);
-      const stroops = BigInt(Math.round(amount * 10_000_000));
       const { txXdr } = await triggerContributeOnChain(
         memberAddress,
         env.contractId,
-        tokenContractId,
-        stroops.toString()
+        circleId,
+        tokenContractId
       );
       const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
         address: memberAddress,

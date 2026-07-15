@@ -13,14 +13,14 @@ export function CreateCollateralStep({
   memberCount,
   contributionAmount,
   contributionAsset,
-  errors = {},
+  fieldErrors = {},
 }: {
   values: CreateCollateralState;
   onChange: (values: CreateCollateralState) => void;
   memberCount: number;
   contributionAmount: number;
   contributionAsset: string;
-  errors?: Record<string, string>;
+  fieldErrors?: Record<string, string>;
 }) {
   const N = memberCount;
   const A = contributionAmount;
@@ -94,11 +94,11 @@ export function CreateCollateralStep({
             onChange={(event) =>
               onChange({ ...values, gracePeriodHours: Number(event.target.value) })
             }
-            aria-invalid={!!errors.gracePeriodHours}
+            aria-invalid={!!fieldErrors.gracePeriodHours}
           />
           <FieldDescription>e.g. 4 hours gives a buffer for timezone issues.</FieldDescription>
-          {errors.gracePeriodHours ? (
-            <FieldError>{errors.gracePeriodHours}</FieldError>
+          {fieldErrors.gracePeriodHours ? (
+            <FieldError>{fieldErrors.gracePeriodHours}</FieldError>
           ) : null}
         </Field>
 
@@ -116,11 +116,11 @@ export function CreateCollateralStep({
             onChange={(event) =>
               onChange({ ...values, slashPercentage: Number(event.target.value) })
             }
-            aria-invalid={!!errors.slashPercentage}
+            aria-invalid={!!fieldErrors.slashPercentage}
           />
           <FieldDescription>Slashed funds are injected into the pool.</FieldDescription>
-          {errors.slashPercentage ? (
-            <FieldError>{errors.slashPercentage}</FieldError>
+          {fieldErrors.slashPercentage ? (
+            <FieldError>{fieldErrors.slashPercentage}</FieldError>
           ) : null}
         </Field>
       </div>
