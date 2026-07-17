@@ -226,6 +226,20 @@ const EVENT_META: Record<string, EventMeta> = {
     color: "text-muted-foreground",
     category: "circle",
   },
+  delete_proposed: {
+    icon: CircleX,
+    label: "Dissolution proposed",
+    description: (m) => m ? `${m} opened a wallet-signed dissolution proposal` : "Dissolution proposed",
+    color: "text-[var(--color-warning-default)]",
+    category: "circle",
+  },
+  delete_voted: {
+    icon: UserCheck,
+    label: "Dissolution vote",
+    description: (m) => m ? `${m} cast a dissolution vote` : "Dissolution vote cast",
+    color: "text-[var(--color-warning-default)]",
+    category: "circle",
+  },
 };
 
 const DEFAULT_META: EventMeta = {
@@ -368,6 +382,21 @@ export function AuditLog({
                     <p className="text-sm font-semibold text-[var(--color-text-default)]">
                       {meta.description(memberName, event.roundNumber, event.txHash)}
                     </p>
+                    {event.metadata ? (
+                      <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                        {typeof event.metadata.from_wallet === "string" || typeof event.metadata.to_wallet === "string" ? (
+                          <p>
+                            {typeof event.metadata.from_wallet === "string" ? `From ${event.metadata.from_wallet}` : ""}
+                            {typeof event.metadata.from_wallet === "string" && typeof event.metadata.to_wallet === "string" ? " → " : ""}
+                            {typeof event.metadata.to_wallet === "string" ? `To ${event.metadata.to_wallet}` : ""}
+                          </p>
+                        ) : null}
+                        {typeof event.metadata.recipient_name === "string" ? <p>Recipient: <strong>{event.metadata.recipient_name}</strong></p> : null}
+                        {typeof event.metadata.vote === "string" ? <p>Decision: <strong>{event.metadata.vote}</strong></p> : null}
+                        {typeof event.metadata.amount === "number" && event.asset ? <p>Amount: <strong>{event.metadata.amount} {event.asset}</strong></p> : null}
+                        {typeof event.metadata.contribution_id === "string" ? <p>Contribution: <span className="font-mono">{event.metadata.contribution_id}</span></p> : null}
+                      </div>
+                    ) : null}
                     {event.txHash ? (
                       <p className="mt-0.5 font-mono text-xs text-muted-foreground flex items-center gap-1">
                         <span>tx:</span>

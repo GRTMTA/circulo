@@ -78,6 +78,7 @@ import {
   deleteCircleAction,
   proposeDeleteCircleAction,
   voteDeleteCircleAction,
+  leaveCancelledCircleAction,
 } from "@/app/dashboard/actions";
 import { ContributionReminderBanner } from "@/components/reminders/contribution-reminder-banner";
 import {
@@ -97,11 +98,15 @@ import {
   triggerCancelCircleOnChain,
   submitSignedTransaction,
 } from "@/services/contractService";
-import { env, getTokenContractId } from "@/lib/env";
+import {
+  triggerProposeDissolution,
+  triggerCastDissolutionVote,
+} from "@/services/dissolutionService";
 import { calculateCollateral, MIN_CYCLE_MEMBERS } from "@/lib/create/validation";
 import { SlashMemberButton } from "@/components/dashboard/slash-member-button";
 import { ExplorerLink } from "@/components/stellar/explorer-link";
 import { WalletPayButton } from "@/components/wallet/wallet-pay-button";
+import { env, getTokenContractId } from "@/lib/env";
 import type {
   CreatorDashboardDTO,
   DashboardContribution,
@@ -148,6 +153,25 @@ export function formatDate(value: string | null) {
 export function shortenWallet(wallet: string) {
   if (wallet.length <= 10) return wallet;
   return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
+}
+
+async function submitDissolutionWalletAction(
+  circleId: string,
+  approve?: boolean,
+): Promise<string> {
+  const wallet = await StellarWalletsKit.getAddress();
+  const memberAddress = wallet?.address;
+  if (!memberAddress) throw new Error("Connect the correct Stellar testnet wallet first.");
+  if (!env.contractId) throw new Error("The Circulo contract is not configured.");
+
+  const prepared = approve === undefined
+    ? await triggerProposeDissolution(memberAddress, env.contractId, circleId)
+    : await triggerCastDissolutionVote(memberAddress, env.contractId, circleId, approve);
+  const { signedTxXdr } = await StellarWalletsKit.signTransaction(prepared.txXdr, {
+    networkPassphrase: env.sorobanNetworkPassphrase,
+    address: memberAddress,
+  });
+  return (await submitSignedTransaction(signedTxXdr)).hash;
 }
 
 function getStatusVariant(
@@ -1390,8 +1414,35 @@ function CreatorDashboard({
 }) {
   const router = useRouter();
   const [activationOpen, setActivationOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+
   const currentRound = getCurrentRound(data.rounds, data.circle.currentRound);
   const creatorMember = data.members.find((member) => member.role === "creator");
+
+  // Dissolution state - derived from audit events
+  const deleteProposedEvent = data.auditEvents.find(
+    (e) => e.eventType === "delete_proposed" && (e.metadata as Record<string, unknown>)?.status === "pending"
+  );
+  const myVoteEvent = creatorMember
+    ? data.auditEvents.find(
+        (e) => e.eventType === "delete_voted" && e.memberId === creatorMember.id
+      )
+    : null;
+  const allVoteEvents = data.auditEvents.filter((e) => e.eventType === "delete_voted");
+  const approveCount = allVoteEvents.filter(
+    (e) => (e.metadata as Record<string, unknown>)?.vote === "approve"
+  ).length;
+
+  const deleteProposed = !!deleteProposedEvent;
+  const hasVoted = !!myVoteEvent;
+  const proposerName = deleteProposedEvent
+    ? data.members.find((m) => m.id === deleteProposedEvent.memberId)?.displayName ?? "A member"
+    : null;
+
+  const wasRejected = data.auditEvents.some(
+    (e) => e.eventType === "delete_proposed" && (e.metadata as Record<string, unknown>)?.status === "rejected"
+  );
+
   const [isPostingCreatorCollateral, setIsPostingCreatorCollateral] = useState(false);
   const postedCollateral = data.members.filter(
     (member) => member.collateralStatus === "posted",
@@ -1481,6 +1532,104 @@ function CreatorDashboard({
           </Button>
         </div>
         <CircleStatusBanner status={data.circle.status} />
+
+        {deleteProposed && !hasVoted && creatorMember ? (
+          <Alert className="border-rose-500/20 bg-rose-50/50 text-rose-700">
+            <AlertTriangle className="size-4 text-rose-500" />
+            <AlertTitle className="font-bold text-rose-800">Proposal to Delete Circle</AlertTitle>
+            <AlertDescription className="flex flex-col gap-3 mt-1.5">
+              <span>
+                <strong>{proposerName}</strong> has proposed to delete this circle.
+                This requires <strong>unanimous approval from all {data.members.length} members</strong>.
+              </span>
+              <span className="text-xs text-rose-600/80">
+                If approved, the escrowed collateral will first be used to compensate members
+                who have not yet received their payout, ensuring they are made whole.
+                Any remaining collateral will then be refunded proportionally to all members.
+              </span>
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-xs font-semibold bg-rose-100 text-rose-700 rounded-full px-2.5 py-0.5">
+                  {approveCount} / {data.members.length} approved
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={loading}
+                    onClick={async () => {
+                      setLoading(true);
+                      try {
+                        const txHash = await submitDissolutionWalletAction(data.circle.id, false);
+                        const res = await voteDeleteCircleAction(data.circle.id, creatorMember.id, "reject", txHash);
+                        if (!res.success) toast.error(res.error);
+                        else {
+                          toast.success("You rejected the proposal. The deletion has been cancelled.");
+                          router.refresh();
+                        }
+                      } catch (error) {
+                        toast.error(error instanceof Error ? error.message : "Could not record your vote.");
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={loading}
+                    onClick={async () => {
+                      setLoading(true);
+                      try {
+                        const txHash = await submitDissolutionWalletAction(data.circle.id, true);
+                        const res = await voteDeleteCircleAction(data.circle.id, creatorMember.id, "approve", txHash);
+                        if (!res.success) toast.error(res.error);
+                        else if (res.outcome === "dissolved") {
+                          toast.success("All members approved. Collateral settlement completed and the circle was removed.");
+                          router.replace("/dashboard");
+                          router.refresh();
+                        } else {
+                          toast.success("Your vote has been recorded.");
+                          router.refresh();
+                        }
+                      } catch (error) {
+                        toast.error(error instanceof Error ? error.message : "Could not record your vote.");
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                  >
+                    Approve Deletion
+                  </Button>
+                </div>
+              </div>
+            </AlertDescription>
+          </Alert>
+        ) : deleteProposed && hasVoted ? (
+          <Alert className="border-blue-500/20 bg-blue-50/50 text-blue-700">
+            <Info className="size-4 text-blue-500" />
+            <AlertTitle className="font-bold text-blue-800">Vote Recorded — Waiting for Others</AlertTitle>
+            <AlertDescription>
+              <span>
+                Your vote has been recorded. <strong>{approveCount} of {data.members.length}</strong> members
+                have approved so far. All members must approve for the dissolution to proceed.
+              </span>
+              <p className="text-xs text-blue-600/70 mt-1.5">
+                If approved, collateral will first compensate members who haven&apos;t received their payout yet.
+              </p>
+            </AlertDescription>
+          </Alert>
+        ) : wasRejected ? (
+          <Alert className="border-amber-500/20 bg-amber-50/50 text-amber-700">
+            <Info className="size-4 text-amber-500" />
+            <AlertTitle className="font-bold text-amber-800">Deletion Proposal Rejected</AlertTitle>
+            <AlertDescription>
+              A previous proposal to delete this circle was rejected by a member. The circle continues as normal.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
         {data.circle.status === "cancelled" ? (
           <Alert className="border-rose-500/20 bg-rose-50/50 text-rose-700 animate-enter-soft">
             <AlertTriangle className="size-4 text-rose-500" />
@@ -1797,15 +1946,68 @@ function CreatorDashboard({
               icon={Settings}
             />
           </div>
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-white p-4">
-            <div>
-              <p className="font-semibold">Remove circle</p>
-              <p className="text-sm text-muted-foreground">
-                Available only when the server-side deletion rules allow it.
-              </p>
+          {data.circle.status === "draft" || data.circle.status === "cancelled" ? (
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-white p-4">
+              <div>
+                <p className="font-semibold">Remove circle</p>
+                <p className="text-sm text-muted-foreground">
+                  Available only when the server-side deletion rules allow it.
+                </p>
+              </div>
+              <DeleteCircleButton circleId={data.circle.id} />
             </div>
-            <DeleteCircleButton circleId={data.circle.id} />
-          </div>
+          ) : (
+            <div className="mt-6 flex flex-col gap-4 p-4 border rounded-lg bg-slate-50/50">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h4 className="font-semibold text-slate-900">Propose Circle Dissolution</h4>
+                  <p className="text-sm text-slate-500 mt-1 max-w-xl">
+                    Propose to dissolve and delete this circle. This starts a vote visible to all
+                    members in the Overview tab. <strong>All members must unanimously approve</strong> for
+                    the dissolution to proceed.
+                  </p>
+                </div>
+                <Button
+                  variant="destructive"
+                  disabled={deleteProposed || loading || !creatorMember}
+                  onClick={async () => {
+                    if (!creatorMember) return;
+                    if (!confirm(
+                      "Are you sure you want to propose dissolving this circle?\n\n" +
+                      "This will start a vote. ALL members must approve for the circle to be deleted.\n\n" +
+                      "If approved, the escrowed collateral will first compensate members who " +
+                      "haven't received their payout yet, then any remainder is refunded to everyone."
+                    )) return;
+                    setLoading(true);
+                    try {
+                      const txHash = await submitDissolutionWalletAction(data.circle.id);
+                      const res = await proposeDeleteCircleAction(data.circle.id, creatorMember.id, txHash);
+                      if (!res.success) toast.error(res.error);
+                      else {
+                        toast.success("Dissolution proposed. All members can now vote in the Overview tab.");
+                        router.refresh();
+                      }
+                    } catch (error) {
+                      toast.error(error instanceof Error ? error.message : "Could not open the dissolution proposal.");
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  className="shrink-0"
+                >
+                  {deleteProposed ? "Dissolution Proposed" : "Propose Dissolution"}
+                </Button>
+              </div>
+              <div className="text-xs text-slate-400 border-t pt-3 space-y-1">
+                <p><strong>How collateral recovery works:</strong></p>
+                <p>
+                  Upon unanimous approval, the smart contract distributes the escrowed collateral
+                  to compensate members who have not yet received their round payouts first.
+                  Any remaining collateral is then refunded proportionally to all members.
+                </p>
+              </div>
+            </div>
+          )}
         </SectionCard>
         <SectionCard title="Emergency controls" description="Pause, resume, or cancel according to the circle's safety rules.">
         <EmergencyActionsPanel
@@ -1889,15 +2091,31 @@ function MemberDashboard({
   data: MemberDashboardDTO;
   isTabContentOnly?: boolean;
 }) {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
 
-  const deleteProposedEvent = data.auditEvents.find((e) => e.eventType === "delete_proposed");
+  // Dissolution state — derived from audit events
+  const deleteProposedEvent = data.auditEvents.find(
+    (e) => e.eventType === "delete_proposed" && (e.metadata as Record<string, unknown>)?.status === "pending"
+  );
   const myVoteEvent = data.auditEvents.find(
     (e) => e.eventType === "delete_voted" && e.memberId === data.currentMember.id
   );
-  
+  const allVoteEvents = data.auditEvents.filter((e) => e.eventType === "delete_voted");
+  const approveCount = allVoteEvents.filter(
+    (e) => (e.metadata as Record<string, unknown>)?.vote === "approve"
+  ).length;
+
   const deleteProposed = !!deleteProposedEvent;
   const hasVoted = !!myVoteEvent;
+  const proposerName = deleteProposedEvent
+    ? data.members.find((m) => m.id === deleteProposedEvent.memberId)?.displayName ?? "A member"
+    : null;
+
+  // Check if a proposal was recently rejected
+  const wasRejected = data.auditEvents.some(
+    (e) => e.eventType === "delete_proposed" && (e.metadata as Record<string, unknown>)?.status === "rejected"
+  );
 
   const currentRound = getCurrentRound(data.rounds, data.circle.currentRound);
   const myContribution = data.contributions.find(
@@ -1967,41 +2185,96 @@ function MemberDashboard({
           <Alert className="border-rose-500/20 bg-rose-50/50 text-rose-700">
             <AlertTriangle className="size-4 text-rose-500" />
             <AlertTitle className="font-bold text-rose-800">Proposal to Delete Circle</AlertTitle>
-            <AlertDescription className="flex flex-col gap-3 mt-1.5 sm:flex-row sm:items-center sm:justify-between">
-              <span>A member has proposed to delete this circle. Do you agree to delete it? If the majority agrees, the circle will be deleted and collateral refunded.</span>
-              <div className="flex gap-2">
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  disabled={loading}
-                  onClick={async () => {
-                    setLoading(true);
-                    await voteDeleteCircleAction(data.circle.id, data.currentMember.id, "reject");
-                    setLoading(false);
-                  }}
-                >
-                  Reject
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant="destructive" 
-                  disabled={loading}
-                  onClick={async () => {
-                    setLoading(true);
-                    await voteDeleteCircleAction(data.circle.id, data.currentMember.id, "approve");
-                    setLoading(false);
-                  }}
-                >
-                  Approve
-                </Button>
+            <AlertDescription className="flex flex-col gap-3 mt-1.5">
+              <span>
+                <strong>{proposerName}</strong> has proposed to delete this circle.
+                This requires <strong>unanimous approval from all {data.members.length} members</strong>.
+              </span>
+              <span className="text-xs text-rose-600/80">
+                If approved, the escrowed collateral will first be used to compensate members
+                who have not yet received their payout, ensuring they are made whole.
+                Any remaining collateral will then be refunded proportionally to all members.
+              </span>
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-xs font-semibold bg-rose-100 text-rose-700 rounded-full px-2.5 py-0.5">
+                  {approveCount} / {data.members.length} approved
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={loading}
+                    onClick={async () => {
+                      setLoading(true);
+                      try {
+                        const txHash = await submitDissolutionWalletAction(data.circle.id, false);
+                        const res = await voteDeleteCircleAction(data.circle.id, data.currentMember.id, "reject", txHash);
+                        if (!res.success) toast.error(res.error);
+                        else {
+                          toast.success("You rejected the proposal. The deletion has been cancelled.");
+                          router.refresh();
+                        }
+                      } catch (error) {
+                        toast.error(error instanceof Error ? error.message : "Could not record your vote.");
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={loading}
+                    onClick={async () => {
+                      setLoading(true);
+                      try {
+                        const txHash = await submitDissolutionWalletAction(data.circle.id, true);
+                        const res = await voteDeleteCircleAction(data.circle.id, data.currentMember.id, "approve", txHash);
+                        if (!res.success) toast.error(res.error);
+                        else if (res.outcome === "dissolved") {
+                          toast.success("All members approved. Collateral settlement completed and the circle was removed.");
+                          router.replace("/dashboard");
+                          router.refresh();
+                        } else {
+                          toast.success("Your vote has been recorded.");
+                          router.refresh();
+                        }
+                      } catch (error) {
+                        toast.error(error instanceof Error ? error.message : "Could not record your vote.");
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                  >
+                    Approve Deletion
+                  </Button>
+                </div>
               </div>
             </AlertDescription>
           </Alert>
         ) : deleteProposed && hasVoted ? (
           <Alert className="border-blue-500/20 bg-blue-50/50 text-blue-700">
             <Info className="size-4 text-blue-500" />
-            <AlertTitle className="font-bold text-blue-800">Vote Recorded</AlertTitle>
-            <AlertDescription>Your vote to delete the circle has been recorded. Waiting for other members.</AlertDescription>
+            <AlertTitle className="font-bold text-blue-800">Vote Recorded — Waiting for Others</AlertTitle>
+            <AlertDescription>
+              <span>
+                Your vote has been recorded. <strong>{approveCount} of {data.members.length}</strong> members
+                have approved so far. All members must approve for the dissolution to proceed.
+              </span>
+              <p className="text-xs text-blue-600/70 mt-1.5">
+                If approved, collateral will first compensate members who haven&apos;t received their payout yet.
+              </p>
+            </AlertDescription>
+          </Alert>
+        ) : wasRejected ? (
+          <Alert className="border-amber-500/20 bg-amber-50/50 text-amber-700">
+            <Info className="size-4 text-amber-500" />
+            <AlertTitle className="font-bold text-amber-800">Deletion Proposal Rejected</AlertTitle>
+            <AlertDescription>
+              A previous proposal to delete this circle was rejected by a member. The circle continues as normal.
+            </AlertDescription>
           </Alert>
         ) : null}
 
@@ -2082,6 +2355,7 @@ function MemberDashboard({
               amount={myContribution?.amountDue ?? data.circle.contributionAmount}
               asset={data.circle.contributionAsset}
               dueDate={currentRound.dueAt}
+              roundNumber={currentRound.roundNumber}
               status={paymentButtonStatus}
             />
           ) : (
@@ -2167,26 +2441,80 @@ function MemberDashboard({
           title="Circle Settings"
           description="Member-specific settings and emergency controls."
         >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border rounded-lg bg-slate-50/50 gap-4">
-            <div>
-              <h4 className="font-semibold text-slate-900">Propose Circle Deletion</h4>
-              <p className="text-sm text-slate-500 mt-1 max-w-xl">
-                If you want to leave and delete the circle, you can propose a deletion. All members will need to vote on this proposal in the Overview tab before the circle is cancelled.
-              </p>
+          {data.circle.status === "cancelled" ? (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 border rounded-lg bg-slate-50/50">
+              <div>
+                <h4 className="font-semibold text-slate-900">Remove from Dashboard</h4>
+                <p className="text-sm text-slate-500 mt-1 max-w-xl">
+                  This circle has been dissolved and cancelled. You can safely remove it from your dashboard. This will remove your membership record.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                disabled={loading}
+                onClick={async () => {
+                  if (!confirm("Are you sure you want to remove this circle from your dashboard?")) return;
+                  setLoading(true);
+                  const res = await leaveCancelledCircleAction(data.circle.id, data.currentMember.id);
+                  if (!res.success) toast.error(res.error);
+                  else {
+                    toast.success("Circle removed from dashboard.");
+                    router.push("/dashboard");
+                    router.refresh();
+                  }
+                  setLoading(false);
+                }}
+                className="shrink-0"
+              >
+                Remove Circle
+              </Button>
             </div>
-            <Button
-              variant="destructive"
-              disabled={deleteProposed || loading}
-              onClick={async () => {
-                setLoading(true);
-                await proposeDeleteCircleAction(data.circle.id, data.currentMember.id);
-                setLoading(false);
-              }}
-              className="shrink-0"
-            >
-              {deleteProposed ? "Deletion Proposed" : "Propose Deletion"}
-            </Button>
-          </div>
+          ) : (
+            <div className="flex flex-col gap-4 p-4 border rounded-lg bg-slate-50/50">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h4 className="font-semibold text-slate-900">Propose Circle Dissolution</h4>
+                  <p className="text-sm text-slate-500 mt-1 max-w-xl">
+                    Propose to dissolve and delete this circle. This starts a vote visible to all
+                    members in the Overview tab. <strong>All members must unanimously approve</strong> for
+                    the dissolution to proceed.
+                  </p>
+                </div>
+                <Button
+                  variant="destructive"
+                  disabled={deleteProposed || loading || data.currentMember.role !== "creator"}
+                  onClick={async () => {
+                    if (!confirm(
+                      "Are you sure you want to propose dissolving this circle?\n\n" +
+                      "This will start a vote. ALL members must approve for the circle to be deleted.\n\n" +
+                      "If approved, the escrowed collateral will first compensate members who " +
+                      "haven't received their payout yet, then any remainder is refunded to everyone."
+                    )) return;
+                    setLoading(true);
+                    const res = { success: false, error: "Only the circle creator can open a dissolution proposal." };
+                    if (!res.success) toast.error(res.error);
+                    if (!res.success) toast.error(res.error);
+                    else {
+                      toast.success("Dissolution proposed. All members can now vote in the Overview tab.");
+                      router.refresh();
+                    }
+                    setLoading(false);
+                  }}
+                  className="shrink-0"
+                >
+                  {deleteProposed ? "Dissolution Proposed" : "Propose Dissolution"}
+                </Button>
+              </div>
+              <div className="text-xs text-slate-400 border-t pt-3 space-y-1">
+                <p><strong>How collateral recovery works:</strong></p>
+                <p>
+                  Upon unanimous approval, the smart contract distributes the escrowed collateral
+                  to compensate members who have not yet received their round payouts first.
+                  Any remaining collateral is then refunded proportionally to all members.
+                </p>
+              </div>
+            </div>
+          )}
         </SectionCard>
       </TabsContent>
     </>

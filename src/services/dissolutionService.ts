@@ -2,6 +2,7 @@ import {
   Address,
   BASE_FEE,
   Contract,
+  FeeBumpTransaction,
   TransactionBuilder,
   nativeToScVal,
   rpc,
@@ -10,7 +11,7 @@ import {
 } from "@stellar/stellar-sdk";
 
 import { env, assertTestnetConfig } from "@/lib/env";
-import { circleIdToScVal } from "@/services/contractService";
+import { circleIdToScVal, uuidToU128 } from "@/services/contractService";
 
 const rpcServer = new rpc.Server(env.sorobanRpcUrl);
 const DISSOLUTION_PROGRESS_EVENT = nativeToScVal("dissolution_progress", {
@@ -241,5 +242,69 @@ export async function getDissolutionProgress(
 
 // Explicit aliases make the intended use in dashboard code self-documenting
 // while retaining the trigger names already used by this repository.
+/** Verifies that a confirmed wallet transaction is the requested dissolution action. */
+export async function verifyDissolutionTransaction(
+  txHash: string,
+  memberAddress: string,
+  contractAddress: string,
+  poolId: string,
+  action: "proposal" | "vote",
+  approve?: boolean,
+) {
+  assertTestnetConfig();
+  assertAccountId(memberAddress, "Member address");
+  assertContractId(contractAddress, "Circulo contract ID");
+  assertPoolId(poolId);
+
+  if (!/^[0-9a-f]{64}$/i.test(txHash)) {
+    throw new Error("Transaction hash is invalid.");
+  }
+
+  const result = await rpcServer.getTransaction(txHash);
+  if (result.status !== "SUCCESS") {
+    throw new Error("The dissolution transaction is not confirmed on testnet.");
+  }
+
+  const parsed = TransactionBuilder.fromXDR(
+    result.envelopeXdr,
+    env.sorobanNetworkPassphrase,
+  );
+  const transaction =
+    parsed instanceof FeeBumpTransaction ? parsed.innerTransaction : parsed;
+  const operation = transaction.operations[0];
+  if (transaction.source !== memberAddress || transaction.operations.length !== 1) {
+    throw new Error("The dissolution transaction source is invalid.");
+  }
+  if (operation?.type !== "invokeHostFunction") {
+    throw new Error("The dissolution transaction does not invoke a contract function.");
+  }
+
+  const invocation = operation.func.invokeContract();
+  const args = invocation.args();
+  const invokedContract = Address.fromScAddress(invocation.contractAddress()).toString();
+  const expectedCircle = uuidToU128(poolId);
+  const invokedCircle = BigInt(scValToNative(args[0]));
+  const invokedMember = Address.fromScVal(args[1]).toString();
+  const expectedFunction = action === "proposal" ? "propose_dissolution" : "cast_dissolution_vote";
+
+  if (
+    invokedContract !== contractAddress ||
+    invocation.functionName().toString() !== expectedFunction ||
+    invokedCircle !== expectedCircle ||
+    invokedMember !== memberAddress
+  ) {
+    throw new Error("The dissolution transaction does not match this circle or member.");
+  }
+
+  if (action === "vote") {
+    if (args.length !== 3 || scValToNative(args[2]) !== approve) {
+      throw new Error("The dissolution vote does not match the selected decision.");
+    }
+  } else if (args.length !== 2) {
+    throw new Error("The dissolution proposal arguments are invalid.");
+  }
+
+  return { hash: result.txHash };
+}
 export const prepareProposeDissolution = triggerProposeDissolution;
 export const prepareCastDissolutionVote = triggerCastDissolutionVote;

@@ -43,6 +43,7 @@ export default async function WalletPage({
           amount={data.circle.contributionAmount}
           asset={data.circle.contributionAsset}
           dueDate={currentRound?.dueAt ?? data.circle.startDate}
+          roundNumber={currentRound?.roundNumber}
           status="idle"
         />
       </div>
