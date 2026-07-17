@@ -20,25 +20,19 @@ export default async function CircleDashboardPage({
   const tabs = data.role === "creator"
     ? [
         ["overview", "Overview"],
-        ["activation", "Activation Gate"],
         ["members", "Members & Collateral"],
-        ["contributions", "Contributions"],
-        ["payouts", "Payout Order"],
-        ["calendar", "Cycle Calendar"],
-        ["defaults", "Default Protection"],
         ["audit", "Audit Log"],
-        ["settings", "Pool Settings"],
-        ["emergency", "Emergency"],
+        ["calendar", "Cycle Calendar"],
+        ["agreement", "Agreement"],
+        ["settings", "Settings"],
       ]
     : [
         ["overview", "Overview"],
-        ["status", "My Status"],
-        ["pay", "Pay Contribution"],
-        ["timeline", "Payout Timeline"],
-        ["transparency", "Group Transparency"],
-        ["collateral", "Collateral Status"],
-        ["rules", "Rules & Agreement"],
-        ["notifications", "Notifications"],
+        ["transactions", "Transactions"],
+        ["calendar", "Cycle Calendar"],
+        ["audit", "Audit Log"],
+        ["collateral", "Collateral & Agreement"],
+        ["settings", "Settings"],
       ];
 
   return (

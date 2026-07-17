@@ -9,11 +9,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StellarWalletsKit } from "@/config/stellar";
 import { env, getTokenContractId } from "@/lib/env";
 import {
+  ContributionAlreadyPaidError,
   submitSignedTransaction,
   triggerContributeOnChain,
 } from "@/services/contractService";
 import { useWallet } from "@/components/wallet/wallet-context";
 import { explorerTxUrl } from "@/lib/stellar-testnet";
+import { recordContributionPaymentAction } from "@/app/dashboard/actions";
 
 type PayStatus = "idle" | "signing" | "submitting" | "confirming" | "paid";
 
@@ -79,11 +81,32 @@ export function WalletPayButton({
       setPaymentStatus("confirming");
       const { hash } = await submitPromise;
 
+      const recorded = await recordContributionPaymentAction(circleId, hash);
+      if (!recorded.success) {
+        throw new Error(recorded.error || "Contribution was confirmed but could not be recorded.");
+      }
+
       setTxHash(hash);
       setPaymentStatus("paid");
       toast.success("Testnet contribution confirmed.");
       refresh();
     } catch (error) {
+      if (error instanceof ContributionAlreadyPaidError) {
+        if (error.txHash) {
+          const recorded = await recordContributionPaymentAction(circleId, error.txHash);
+          if (recorded.success) {
+            setTxHash(error.txHash);
+            setPaymentStatus("paid");
+            toast.success("This contribution was already paid and has been synced.");
+            refresh();
+            return;
+          }
+        }
+        setPaymentStatus("paid");
+        toast.info("This contribution is already paid on-chain. Refresh the dashboard.");
+        refresh();
+        return;
+      }
       setPaymentStatus("idle");
       toast.error(error instanceof Error ? error.message : "Contribution failed.");
     }

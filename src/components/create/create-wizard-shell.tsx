@@ -18,7 +18,11 @@ import type {
   CreatePayoutOrderItem,
   CreateRosterMember,
 } from "@/lib/create/types";
-import { createCircleAction, logCircleInitializationAction } from "@/app/dashboard/actions";
+import {
+  confirmCreatorCollateralAction,
+  createCircleAction,
+  logCircleInitializationAction,
+} from "@/app/dashboard/actions";
 import {
   validateBasics,
   validateCollateral,
@@ -26,8 +30,13 @@ import {
 } from "@/lib/create/validation";
 import { StellarWalletsKit, KitEventType } from "@/config/stellar";
 import type { KitEventStateUpdated } from "@creit.tech/stellar-wallets-kit";
-import { env } from "@/lib/env";
-import { triggerInitializeOnChain, submitSignedTransaction } from "@/services/contractService";
+import { env, getTokenContractId } from "@/lib/env";
+import { DEFAULT_CIRCLE_TIME_ZONE } from "@/lib/time-zone";
+import {
+  submitSignedTransaction,
+  triggerInitializeOnChain,
+  triggerPostCollateralOnChain,
+} from "@/services/contractService";
 
 const steps = ["Basics", "Roster", "Collateral", "Payout Order", "Review"];
 
@@ -35,6 +44,8 @@ const initialBasics: CreateBasicsState = {
   name: "",
   contributionAmount: 10,
   contributionAsset: "XLM",
+  cycleCount: 1,
+  timeZone: DEFAULT_CIRCLE_TIME_ZONE,
   intervalSeconds: 86_400,
   memberCount: 2,
   payoutOrderMode: "creator",
@@ -212,6 +223,7 @@ export function CreateWizardShell({ defaultCreatorName }: { defaultCreatorName?:
           basics.contributionAmount,
           collateral.collateralAmount,
           basics.intervalSeconds,
+          basics.cycleCount,
           memberAddresses
         );
 
@@ -224,8 +236,36 @@ export function CreateWizardShell({ defaultCreatorName }: { defaultCreatorName?:
         const { hash: initTxHash } = await submitSignedTransaction(signedTxXdr);
 
         await logCircleInitializationAction(res.circleId, initTxHash);
-        
-        toast.success("Circle created and initialized on-chain successfully!");
+
+        // Initialization stores the amount and roster but intentionally does
+        // not move funds. The creator immediately signs this second operation
+        // to escrow their own dynamically calculated collateral.
+        toast.info("Post your creator collateral deposit to finish circle setup...");
+        const { txXdr: collateralTxXdr } = await triggerPostCollateralOnChain(
+          creatorAddress,
+          env.contractId,
+          res.circleId,
+          getTokenContractId(basics.contributionAsset),
+        );
+        const { signedTxXdr: signedCollateralTxXdr } =
+          await StellarWalletsKit.signTransaction(collateralTxXdr, {
+            networkPassphrase: env.sorobanNetworkPassphrase,
+            address: creatorAddress,
+          });
+        const { hash: collateralTxHash } = await submitSignedTransaction(
+          signedCollateralTxXdr,
+        );
+        const collateralResult = await confirmCreatorCollateralAction(
+          res.circleId,
+          collateralTxHash,
+        );
+        if (!collateralResult.success) {
+          throw new Error(
+            collateralResult.error || "Creator collateral could not be confirmed.",
+          );
+        }
+
+        toast.success("Circle created and creator collateral posted successfully!");
         router.push(`/dashboard/${res.circleId}`);
         router.refresh();
       } else {
@@ -286,6 +326,7 @@ export function CreateWizardShell({ defaultCreatorName }: { defaultCreatorName?:
             values={collateral}
             onChange={setCollateral}
             memberCount={basics.memberCount}
+            cycleCount={basics.cycleCount}
             contributionAmount={basics.contributionAmount}
             contributionAsset={basics.contributionAsset}
             fieldErrors={attempted ? stepErrors : {}}

@@ -7,6 +7,7 @@ import { StrKey } from "@stellar/stellar-sdk";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { requireAuthenticatedUser } from "@/lib/auth";
 import { getTokenContractId, env } from "@/lib/env";
+import { isValidIanaTimeZone } from "@/lib/time-zone";
 import { verifyContributeTransaction } from "@/services/contractService";
 import {
   isValidStellarPublicKey,
@@ -20,6 +21,8 @@ export interface CreateBasicsInput {
   name: string;
   contributionAmount: number;
   contributionAsset: "USDC" | "USDT" | "XLM";
+  cycleCount: number;
+  timeZone: string;
   intervalSeconds: number;
   memberCount: number;
   payoutOrderMode: "creator" | "voting";
@@ -60,6 +63,9 @@ export async function createCircleAction(
   if (!basicsValidation.valid || !rosterValidation.valid || !collateralValidation.valid) {
     return { success: false, error: "Circle details are invalid." };
   }
+  if (!isValidIanaTimeZone(basics.timeZone)) {
+    return { success: false, error: "Choose a valid IANA timezone." };
+  }
   if (roster.length < 1 || roster.length > basics.memberCount) {
     return { success: false, error: "Roster must have between 1 and the configured member count." };
   }
@@ -99,6 +105,8 @@ export async function createCircleAction(
       status: "draft",
       contribution_amount: basics.contributionAmount,
       contribution_asset: basics.contributionAsset,
+      cycle_count: basics.cycleCount,
+      time_zone: basics.timeZone,
       interval_seconds: basics.intervalSeconds,
       member_count: actualMemberCount, // current roster size (can grow up to the max)
       max_member_count: basics.memberCount,
@@ -107,11 +115,13 @@ export async function createCircleAction(
       grace_period_hours: collateral.gracePeriodHours,
       slash_percentage: collateral.slashPercentage,
       current_round: 0, // 0 for draft mode (not started)
-      total_rounds: actualMemberCount,
+      total_rounds: actualMemberCount * basics.cycleCount,
       start_date: null,
-      settings_locked: false,
-      payout_order_locked: false,
-      rules_locked: false,
+      // These values are selected and persisted by the creation wizard. They
+      // are therefore configuration-complete before the activation gate opens.
+      settings_locked: true,
+      payout_order_locked: true,
+      rules_locked: true,
     })
     .select()
     .single();
@@ -363,8 +373,8 @@ export async function cancelCircleAction(circleId: string, reason: string, txHas
     return { success: false, error: "Only the circle creator can cancel the circle." };
   }
 
-  if (circle.status !== "paused" && circle.status !== "draft") {
-    return { success: false, error: "Only paused or draft circles can be cancelled. Pause the circle first." };
+  if (circle.status !== "pending" && circle.status !== "draft") {
+    return { success: false, error: "Only pending or draft circles can be cancelled." };
   }
 
   const { error } = await supabase
@@ -540,6 +550,203 @@ export async function acceptAgreementAction(
   return { success: true };
 }
 
+/**
+ * Records the creator's separate, wallet-signed collateral deposit. The
+ * creator is already an accepted roster member, so they do not use the member
+ * invitation acceptance flow above.
+ */
+export async function confirmCreatorCollateralAction(circleId: string, txHash: string) {
+  const authContext = await requireAuthenticatedUser(`/dashboard/${circleId}`);
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  if (!env.contractId) {
+    return { success: false, error: "NEXT_PUBLIC_CIRCULO_CONTRACT_ID is not configured." };
+  }
+
+  const supabase = await createServerSupabaseClient();
+  const { data: member } = await supabase
+    .from("circle_members")
+    .select("id, wallet_address, collateral_status, circles(contribution_asset)")
+    .eq("circle_id", circleId)
+    .eq("profile_id", authContext.user.id)
+    .eq("role", "creator")
+    .maybeSingle();
+
+  if (!member) {
+    return { success: false, error: "Only this circle's creator can post its creator collateral." };
+  }
+  if (member.collateral_status === "posted") {
+    return { success: false, error: "Creator collateral has already been posted." };
+  }
+
+  const circle = Array.isArray(member.circles) ? member.circles[0] : member.circles;
+  if (!circle) {
+    return { success: false, error: "Circle configuration was not found." };
+  }
+
+  try {
+    await verifyContributeTransaction(
+      txHash,
+      member.wallet_address,
+      env.contractId,
+      circleId,
+      getTokenContractId(circle.contribution_asset)
+    );
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Collateral transaction verification failed.",
+    };
+  }
+
+  const { error: updateError } = await supabase
+    .from("circle_members")
+    .update({ collateral_status: "posted" })
+    .eq("id", member.id)
+    .eq("collateral_status", "not_posted");
+
+  if (updateError) {
+    return { success: false, error: updateError.message };
+  }
+
+  await supabase.from("audit_events").insert({
+    circle_id: circleId,
+    member_id: member.id,
+    event_type: "collateral_posted",
+    tx_hash: txHash,
+    metadata: { role: "creator" },
+  });
+
+  revalidatePath(`/dashboard/${circleId}`);
+  revalidatePath("/dashboard", "layout");
+  return { success: true };
+}
+
+/**
+ * Reconciles a member's wallet-signed contribution with the dashboard state.
+ * The contract is the source of truth for the transfer; this action only
+ * records a successful, matching transaction after RPC verification. The
+ * conditional update makes retries safe when a wallet or browser submits the
+ * confirmation more than once.
+ */
+export async function recordContributionPaymentAction(circleId: string, txHash: string) {
+  const authContext = await requireAuthenticatedUser(`/dashboard/${circleId}`);
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+  if (!env.contractId) {
+    return { success: false, error: "NEXT_PUBLIC_CIRCULO_CONTRACT_ID is not configured." };
+  }
+  if (!/^[0-9a-fA-F]{64}$/.test(txHash)) {
+    return { success: false, error: "A valid on-chain transaction hash is required." };
+  }
+
+  const supabase = await createServerSupabaseClient();
+  const { data: circle } = await supabase
+    .from("circles")
+    .select("id, status, current_round, contribution_asset")
+    .eq("id", circleId)
+    .maybeSingle();
+  if (!circle) return { success: false, error: "Circle not found." };
+  if (circle.status !== "active") {
+    return { success: false, error: "Contributions can only be verified for an active circle." };
+  }
+
+  const { data: member } = await supabase
+    .from("circle_members")
+    .select("id, wallet_address")
+    .eq("circle_id", circleId)
+    .eq("profile_id", authContext.user.id)
+    .maybeSingle();
+  if (!member) return { success: false, error: "You are not a member of this circle." };
+
+  const { data: round } = await supabase
+    .from("circle_rounds")
+    .select("id, round_number, due_at")
+    .eq("circle_id", circleId)
+    .eq("round_number", circle.current_round)
+    .maybeSingle();
+  if (!round) return { success: false, error: "The current round was not found." };
+
+  const { data: contribution } = await supabase
+    .from("circle_contributions")
+    .select("id, amount_due, status, paid_at, tx_hash")
+    .eq("circle_id", circleId)
+    .eq("round_id", round.id)
+    .eq("member_id", member.id)
+    .maybeSingle();
+  if (!contribution) return { success: false, error: "No contribution is scheduled for this round." };
+  if (contribution.status === "paid") {
+    return { success: true, alreadyRecorded: true, hash: contribution.tx_hash ?? txHash };
+  }
+
+  try {
+    await verifyContributeTransaction(
+      txHash,
+      member.wallet_address,
+      env.contractId,
+      circleId,
+      getTokenContractId(circle.contribution_asset),
+      contribution.amount_due,
+    );
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Contribution verification failed.",
+    };
+  }
+
+  const paidAt = new Date().toISOString();
+  const { data: updatedContribution, error: updateError } = await supabase
+    .from("circle_contributions")
+    .update({ status: "paid", tx_hash: txHash, paid_at: paidAt })
+    .eq("id", contribution.id)
+    .neq("status", "paid")
+    .select("id")
+    .maybeSingle();
+  if (updateError) return { success: false, error: updateError.message };
+
+  // If another retry won the race, the desired final state is already true.
+  if (!updatedContribution) {
+    return { success: true, alreadyRecorded: true, hash: txHash };
+  }
+
+  const { data: paidContributions } = await supabase
+    .from("circle_contributions")
+    .select("amount_due")
+    .eq("round_id", round.id)
+    .eq("status", "paid");
+  const collectedAmount = (paidContributions ?? []).reduce(
+    (total, item) => total + Number(item.amount_due ?? 0),
+    0,
+  );
+  await supabase
+    .from("circle_rounds")
+    .update({ collected_amount: collectedAmount, status: "active" })
+    .eq("id", round.id);
+
+  await supabase.from("audit_events").insert({
+    circle_id: circleId,
+    member_id: member.id,
+    event_type: "contribution_verified",
+    round_number: round.round_number,
+    tx_hash: txHash,
+    metadata: {
+      amount: Number(contribution.amount_due),
+      asset: circle.contribution_asset,
+      due_at: round.due_at,
+      paid_at: paidAt,
+      status: "paid",
+    },
+  });
+
+  revalidatePath(`/dashboard/${circleId}`);
+  revalidatePath(`/dashboard/${circleId}/calendar`);
+  return { success: true, hash: txHash };
+}
+
 
 export async function activateCircleAction(circleId: string) {
   const authContext = await requireAuthenticatedUser("/dashboard");
@@ -552,7 +759,7 @@ export async function activateCircleAction(circleId: string) {
   // 1. Verify user is the creator
   const { data: circle } = await supabase
     .from("circles")
-    .select("id, creator_id, status, settings_locked, payout_order_locked, rules_locked")
+    .select("id, creator_id, status, cycle_count, interval_seconds, contribution_amount, contribution_asset, settings_locked, payout_order_locked, rules_locked")
     .eq("id", circleId)
     .single();
 
@@ -568,16 +775,11 @@ export async function activateCircleAction(circleId: string) {
     return { success: false, error: "Only draft circles can be activated." };
   }
 
-  // 2. Check all settings are locked
-  if (!circle.settings_locked || !circle.payout_order_locked || !circle.rules_locked) {
-    return { success: false, error: "Lock all settings, payout order, and rules before activation." };
-  }
-
-  // 3. A cycle starts only with members who are fully ready: invite accepted,
+  // 2. A cycle starts only with members who are fully ready: invite accepted,
   //    agreement accepted, and collateral validated/posted.
   const { data: members } = await supabase
     .from("circle_members")
-    .select("id, invite_status, collateral_status, agreement_status")
+    .select("id, payout_round, invite_status, collateral_status, agreement_status")
     .eq("circle_id", circleId);
 
   if (!members || members.length === 0) {
@@ -590,11 +792,12 @@ export async function activateCircleAction(circleId: string) {
       m.agreement_status === "accepted" &&
       m.collateral_status === "posted"
   );
+  const minimumMembersRequired = Math.min(MIN_CYCLE_MEMBERS, members.length);
 
-  if (readyMembers.length < MIN_CYCLE_MEMBERS) {
+  if (readyMembers.length < minimumMembersRequired) {
     return {
       success: false,
-      error: `A cycle needs at least ${MIN_CYCLE_MEMBERS} members with validated collateral. Only ${readyMembers.length} ready so far.`,
+      error: `A cycle needs at least ${minimumMembersRequired} members with validated collateral. Only ${readyMembers.length} ready so far.`,
     };
   }
 
@@ -612,21 +815,88 @@ export async function activateCircleAction(circleId: string) {
     };
   }
 
-  // 4. All gates pass — activate the circle. Rounds equal the participating
-  //    members captured at activation; members added later join a future cycle.
+  // 3. All gates pass — lock the participating roster for every configured
+  //    rotation. Members added later join a future agreement.
   const { error: updateError } = await supabase
     .from("circles")
     .update({
       status: "active",
       current_round: 1,
-      total_rounds: readyMembers.length,
+      total_rounds: readyMembers.length * Number(circle.cycle_count ?? 1),
       member_count: readyMembers.length,
       start_date: new Date().toISOString(),
+      settings_locked: true,
+      payout_order_locked: true,
+      rules_locked: true,
     })
     .eq("id", circleId);
 
   if (updateError) {
     return { success: false, error: updateError.message };
+  }
+
+  // Materialize the complete schedule once, at activation time. This gives
+  // the member dashboard a stable due date for every round and lets the cron
+  // worker claim only the current payout row. The original due date is never
+  // replaced by the eventual payment timestamp.
+  const cycleCount = Number(circle.cycle_count ?? 1);
+  const totalRounds = readyMembers.length * cycleCount;
+  const startAt = new Date();
+  const roundsToInsert = Array.from({ length: totalRounds }, (_, index) => {
+    const roundNumber = index + 1;
+    const dueAt = new Date(
+      startAt.getTime() + index * Number(circle.interval_seconds) * 1000,
+    );
+    const payoutPosition = ((roundNumber - 1) % readyMembers.length) + 1;
+    const payoutMember = readyMembers.find((member) => member.payout_round === payoutPosition);
+    return {
+      circle_id: circleId,
+      round_number: roundNumber,
+      due_at: dueAt.toISOString(),
+      payout_member_id: payoutMember?.id ?? null,
+      expected_amount: Number(circle.contribution_amount) * readyMembers.length,
+      collected_amount: 0,
+      status: roundNumber === 1 ? "active" : "scheduled",
+    };
+  });
+
+  const { data: insertedRounds, error: roundsError } = await supabase
+    .from("circle_rounds")
+    .insert(roundsToInsert)
+    .select("id, round_number, due_at, payout_member_id");
+  if (roundsError || !insertedRounds) {
+    return { success: false, error: roundsError?.message ?? "Could not create circle rounds." };
+  }
+
+  const contributionsToInsert = insertedRounds.flatMap((round) =>
+    readyMembers.map((member) => ({
+      circle_id: circleId,
+      round_id: round.id,
+      member_id: member.id,
+      amount_due: Number(circle.contribution_amount),
+      status: round.round_number === 1 ? "due_now" : "pending",
+    })),
+  );
+  const { error: contributionsError } = await supabase
+    .from("circle_contributions")
+    .insert(contributionsToInsert);
+  if (contributionsError) {
+    return { success: false, error: contributionsError.message };
+  }
+
+  const payoutsToInsert = insertedRounds.map((round) => ({
+    circle_id: circleId,
+    round_number: round.round_number,
+    recipient_member_id: round.payout_member_id,
+    payout_amount: Number(circle.contribution_amount) * readyMembers.length,
+    expected_payout_at: round.due_at,
+    status: round.round_number === 1 ? "ready" : "scheduled",
+  }));
+  const { error: payoutsError } = await supabase
+    .from("payout_schedule")
+    .insert(payoutsToInsert);
+  if (payoutsError) {
+    return { success: false, error: payoutsError.message };
   }
 
   // 5. Log the activation event
@@ -732,8 +1002,9 @@ export async function deleteCircleAction(circleId: string) {
 
   // Delete all dependencies explicitly to prevent foreign key constraint issues
   await supabase.from("audit_events").delete().eq("circle_id", circleId);
-  await supabase.from("notifications").delete().eq("circle_id", circleId);
-  await supabase.from("contributions").delete().eq("circle_id", circleId);
+  await supabase.from("member_notifications").delete().eq("circle_id", circleId);
+  await supabase.from("payout_schedule").delete().eq("circle_id", circleId);
+  await supabase.from("circle_contributions").delete().eq("circle_id", circleId);
   await supabase.from("circle_rounds").delete().eq("circle_id", circleId);
   await supabase.from("circle_members").delete().eq("circle_id", circleId);
 
@@ -936,5 +1207,60 @@ export async function markAllNotificationsReadAction() {
   }
 
   revalidatePath("/dashboard", "layout");
+  return { success: true };
+}
+
+export async function proposeDeleteCircleAction(circleId: string, memberId: string) {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const supabase = await createServerSupabaseClient();
+  
+  // Create an audit event for the proposal
+  const { error } = await supabase.from("audit_events").insert({
+    circle_id: circleId,
+    member_id: memberId,
+    event_type: "delete_proposed",
+    metadata: { status: "pending" },
+  });
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  // Also auto-vote for the proposer
+  await supabase.from("audit_events").insert({
+    circle_id: circleId,
+    member_id: memberId,
+    event_type: "delete_voted",
+    metadata: { vote: "approve" },
+  });
+
+  revalidatePath(`/dashboard/${circleId}`);
+  return { success: true };
+}
+
+export async function voteDeleteCircleAction(circleId: string, memberId: string, vote: "approve" | "reject") {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const supabase = await createServerSupabaseClient();
+  
+  const { error } = await supabase.from("audit_events").insert({
+    circle_id: circleId,
+    member_id: memberId,
+    event_type: "delete_voted",
+    metadata: { vote },
+  });
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/dashboard/${circleId}`);
   return { success: true };
 }

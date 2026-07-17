@@ -103,7 +103,8 @@ export default function TransactionsPage() {
     return item.asset_code || "Unknown Token";
   };
 
-  const formatAddress = (addr: string) => {
+  const formatAddress = (addr?: string) => {
+    if (!addr) return "Unknown";
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   };
 

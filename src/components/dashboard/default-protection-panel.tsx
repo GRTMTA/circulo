@@ -131,7 +131,7 @@ export function DefaultProtectionCreatorView({
         <CardHeader>
           <div className="flex items-center gap-2">
             <ShieldCheck className="size-5 text-[var(--color-primary-default)]" />
-            <CardTitle>Protection Rules</CardTitle>
+            <CardTitle>Circle Agreement & Protection Rules</CardTitle>
           </div>
           <CardDescription>
             These rules are locked once the circle is activated and apply equally to all members.

@@ -19,7 +19,8 @@ export default async function AgreementPage({
   const dynamicCollateralAmount = calculateCollateral(
     data.circle.memberCount,
     data.circle.contributionAmount,
-    data.currentMember.payoutRound
+    data.currentMember.payoutRound,
+    data.circle.cycleCount
   );
 
   return (
@@ -44,4 +45,3 @@ export default async function AgreementPage({
     </DashboardShell>
   );
 }
-

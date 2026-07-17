@@ -25,6 +25,8 @@ interface CircleRow {
   status: CircleStatus;
   contribution_amount: number | string;
   contribution_asset: string;
+  cycle_count?: number;
+  time_zone?: string;
   interval_seconds: number;
   member_count: number;
   max_member_count?: number;
@@ -82,6 +84,9 @@ interface PayoutRow {
   withheld_amount?: number | string;
   status: DashboardPayout["status"];
   tx_hash: string | null;
+  attempt_count?: number;
+  last_error?: string | null;
+  processed_at?: string | null;
 }
 
 interface RoundRow {
@@ -100,6 +105,7 @@ interface AuditEventRow {
   event_type: string;
   round_number: number | null;
   tx_hash: string | null;
+  metadata?: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -124,6 +130,8 @@ function mapCircle(row: CircleRow): DashboardCircle {
     status: row.status,
     contributionAmount: toNumber(row.contribution_amount),
     contributionAsset: row.contribution_asset,
+    cycleCount: row.cycle_count ?? 1,
+    timeZone: row.time_zone ?? "Asia/Manila",
     intervalSeconds: row.interval_seconds,
     memberCount: row.member_count,
     maxMemberCount: row.max_member_count ?? 20,
@@ -200,10 +208,15 @@ function mapPayout(row: PayoutRow): DashboardPayout {
     withheldAmount: row.withheld_amount ? toNumber(row.withheld_amount) : 0,
     status: row.status,
     txHash: row.tx_hash,
+    attemptCount: row.attempt_count ?? 0,
+    lastError: row.last_error ?? null,
+    processedAt: row.processed_at ?? null,
   };
 }
 
 function mapAuditEvent(row: AuditEventRow): DashboardAuditEvent {
+  const metadata = row.metadata ?? {};
+  const numericAmount = typeof metadata.amount === "number" ? metadata.amount : undefined;
   return {
     id: row.id,
     eventType: row.event_type,
@@ -211,6 +224,14 @@ function mapAuditEvent(row: AuditEventRow): DashboardAuditEvent {
     roundNumber: row.round_number,
     txHash: row.tx_hash,
     createdAt: row.created_at,
+    metadata,
+    amount: numericAmount,
+    asset: typeof metadata.asset === "string" ? metadata.asset : undefined,
+    dueAt: typeof metadata.due_at === "string" ? metadata.due_at : null,
+    paidAt: typeof metadata.paid_at === "string" ? metadata.paid_at : null,
+    expectedPayoutAt:
+      typeof metadata.expected_payout_at === "string" ? metadata.expected_payout_at : null,
+    status: typeof metadata.status === "string" ? metadata.status : undefined,
   };
 }
 
@@ -265,7 +286,7 @@ async function fetchCircleBundle(circleId: string) {
       .select("*")
       .eq("circle_id", circleId)
       .order("created_at", { ascending: false })
-      .limit(20)
+      .limit(200)
       .overrideTypes<AuditEventRow[], { merge: false }>(),
   ]);
 
@@ -273,14 +294,57 @@ async function fetchCircleBundle(circleId: string) {
     return null;
   }
 
+  const circle = mapCircle(circleResult.data);
+  const members = (membersResult.data ?? []).map(mapMember);
+  const rounds = (roundsResult.data ?? []).map(mapRound);
+  const contributions = (contributionsResult.data ?? []).map(mapContribution);
+  const payouts = (payoutsResult.data ?? []).map(mapPayout);
+  const auditEvents = (auditResult.data ?? []).map((row) => {
+    const event = mapAuditEvent(row);
+    // Enrich contribution details
+    if (
+      event.eventType.startsWith("contribution_") ||
+      event.eventType === "collateral_posted" ||
+      event.eventType === "collateral_slashed" ||
+      event.eventType === "collateral_refunded"
+    ) {
+      const round = rounds.find((r) => r.roundNumber === event.roundNumber);
+      const contribution = round
+        ? contributions.find((c) => c.memberId === event.memberId && c.roundId === round.id)
+        : contributions.find((c) => c.memberId === event.memberId);
+      
+      event.amount = event.amount ?? (contribution ? contribution.amountDue : circle.contributionAmount);
+      event.asset = event.asset ?? circle.contributionAsset;
+      event.dueAt = event.dueAt ?? (round ? round.dueAt : null);
+      if (contribution) {
+        event.paidAt = event.paidAt ?? contribution.paidAt;
+        event.status = event.status ?? contribution.status;
+        event.txHash = event.txHash ?? contribution.txHash;
+      }
+    }
+    // Enrich payout details
+    else if (event.eventType.startsWith("payout_") || event.eventType === "circle_completed") {
+      const payout = payouts.find((p) => p.roundNumber === event.roundNumber);
+      event.amount = event.amount ?? (payout ? payout.payoutAmount : (circle.contributionAmount * members.length));
+      event.asset = event.asset ?? circle.contributionAsset;
+      if (payout) {
+        event.expectedPayoutAt = event.expectedPayoutAt ?? payout.expectedPayoutAt;
+        event.status = event.status ?? payout.status;
+        event.txHash = event.txHash ?? payout.txHash;
+        event.memberId = event.memberId ?? payout.recipientMemberId;
+      }
+    }
+    return event;
+  });
+
   return {
     creatorId: circleResult.data.creator_id ?? null,
-    circle: mapCircle(circleResult.data),
-    members: (membersResult.data ?? []).map(mapMember),
-    rounds: (roundsResult.data ?? []).map(mapRound),
-    contributions: (contributionsResult.data ?? []).map(mapContribution),
-    payouts: (payoutsResult.data ?? []).map(mapPayout),
-    auditEvents: (auditResult.data ?? []).map(mapAuditEvent),
+    circle,
+    members,
+    rounds,
+    contributions,
+    payouts,
+    auditEvents,
   };
 }
 

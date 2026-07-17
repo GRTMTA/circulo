@@ -27,7 +27,10 @@ export function CreateReviewStep({
         <CardContent className="grid gap-2 text-sm">
           <p><strong>Name:</strong> {basics.name}</p>
           <p><strong>Contribution:</strong> {basics.contributionAmount} {basics.contributionAsset}</p>
+          <p><strong>Interval:</strong> Every {basics.intervalSeconds / 86_400} day{basics.intervalSeconds === 86_400 ? "" : "s"}</p>
+          <p><strong>Timezone:</strong> {basics.timeZone}</p>
           <p><strong>Members:</strong> {basics.memberCount}</p>
+          <p><strong>Cycles:</strong> {basics.cycleCount} ({basics.memberCount * basics.cycleCount} total rounds)</p>
           <p><strong>Payout order:</strong> {basics.payoutOrderMode === "voting" ? "Member voting" : "Creator-set"}</p>
         </CardContent>
       </Card>
@@ -54,4 +57,3 @@ export function CreateReviewStep({
     </div>
   );
 }
-

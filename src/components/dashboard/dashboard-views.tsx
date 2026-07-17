@@ -13,13 +13,17 @@ import {
   ShieldAlert,
   ShieldCheck,
   UsersRound,
-  WalletCards,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  ArrowDownLeft,
+  ArrowUpRight,
   AlertTriangle,
-  ArrowDownCircle,
   Trash2,
+  RefreshCcw,
+  Clock,
+  History,
+  Info,
 } from "lucide-react";
 
 // AppShell and DashboardShell imports removed since layout is managed by Next.js layouts.
@@ -69,13 +73,13 @@ import {
   pauseCircleAction,
   resumeCircleAction,
   cancelCircleAction,
-  acceptAgreementAction,
   activateCircleAction,
-  logCollateralRefundAction,
+  confirmCreatorCollateralAction,
   deleteCircleAction,
+  proposeDeleteCircleAction,
+  voteDeleteCircleAction,
 } from "@/app/dashboard/actions";
 import { ContributionReminderBanner } from "@/components/reminders/contribution-reminder-banner";
-import { ReminderSettingsPanel } from "@/components/reminders/reminder-settings-panel";
 import {
   Dialog,
   DialogContent,
@@ -85,31 +89,27 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { StellarWalletsKit } from "@/config/stellar";
 import {
   triggerPostCollateralOnChain,
   triggerActivateOnChain,
   triggerCancelCircleOnChain,
-  triggerClaimRefundOnChain,
   submitSignedTransaction,
 } from "@/services/contractService";
 import { env, getTokenContractId } from "@/lib/env";
 import { calculateCollateral, MIN_CYCLE_MEMBERS } from "@/lib/create/validation";
-import { RoundPayoutPanel } from "@/components/dashboard/round-payout-panel";
 import { SlashMemberButton } from "@/components/dashboard/slash-member-button";
 import { ExplorerLink } from "@/components/stellar/explorer-link";
+import { WalletPayButton } from "@/components/wallet/wallet-pay-button";
 import type {
   CreatorDashboardDTO,
-  DashboardAuditEvent,
   DashboardContribution,
   DashboardDTO,
   DashboardMember,
   DashboardPayout,
   DashboardRound,
   MemberDashboardDTO,
-  DashboardNotification,
 } from "@/lib/dashboard/types";
 
 // navigation variables removed as sidebar is constructed dynamically by the parent AppShell.
@@ -443,7 +443,7 @@ export function MemberTable({
   const [filterRestriction, setFilterRestriction] = useState<string | null>(
     null,
   );
-  const [sort, toggleSort, sortFn] = useSort("displayName");
+  const [sort, toggleSort, sortFn] = useSort("payoutRound");
 
   const statusOptions = (statuses: string[]): FilterOption[] =>
     statuses.map((s) => ({ value: s, label: titleCase(s) }));
@@ -587,6 +587,12 @@ export function MemberTable({
         <TableHeader>
           <TableRow>
             <SortHeader
+              label="Order"
+              sortKey="payoutRound"
+              sort={sort}
+              onToggle={toggleSort}
+            />
+            <SortHeader
               label="Member"
               sortKey="displayName"
               sort={sort}
@@ -619,12 +625,6 @@ export function MemberTable({
             <SortHeader
               label="Contribution"
               sortKey="paymentStatus"
-              sort={sort}
-              onToggle={toggleSort}
-            />
-            <SortHeader
-              label="Payout"
-              sortKey="payoutRound"
               sort={sort}
               onToggle={toggleSort}
             />
@@ -666,6 +666,9 @@ export function MemberTable({
           ) : (
             sorted.map((member) => (
               <TableRow key={member.id}>
+                <TableCell className="font-semibold text-center sm:text-left">
+                  {member.payoutRound}
+                </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-3">
                     <MemberAvatar member={member} className="size-8" />
@@ -687,7 +690,6 @@ export function MemberTable({
                 <TableCell>
                   <StatusBadge status={member.paymentStatus} />
                 </TableCell>
-                <TableCell>Round {member.payoutRound}</TableCell>
                 <TableCell>
                   <StatusBadge status={member.restrictionStatus} />
                 </TableCell>
@@ -917,6 +919,374 @@ export function PayoutTimeline({
   );
 }
 
+type WalletFlowDirection = "in" | "out" | "escrow";
+type WalletFlowStatus = "confirmed" | "verifying" | "scheduled";
+
+interface MemberWalletFlow {
+  id: string;
+  direction: WalletFlowDirection;
+  status: WalletFlowStatus;
+  title: string;
+  description: string;
+  amount: number;
+  asset: string;
+  occurredAt: string | null;
+  txHash: string | null;
+}
+
+function metadataAmount(
+  metadata: Record<string, unknown> | undefined,
+  keys: string[],
+): number | null {
+  if (!metadata) return null;
+
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+
+  return null;
+}
+
+function formatWalletFlowTime(value: string | null, timeZone: string) {
+  if (!value) return "Recorded time unavailable";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone,
+  }).format(new Date(value));
+}
+
+/**
+ * Circle-scoped wallet ledger. It intentionally uses the verified dashboard
+ * records instead of trying to infer Soroban token transfers from Horizon's
+ * payment-operation endpoint, which does not reliably expose contract calls.
+ */
+function MemberTransactionHistory({ data }: { data: MemberDashboardDTO }) {
+  const [directionFilter, setDirectionFilter] = useState<"all" | WalletFlowDirection>("all");
+  const collateralRequired = calculateCollateral(
+    data.circle.memberCount,
+    data.circle.contributionAmount,
+    data.currentMember.payoutRound,
+    data.circle.cycleCount,
+  );
+  const refundableCollateral = Math.max(
+    0,
+    collateralRequired - data.currentMember.slashedAmount,
+  );
+  const roundsById = new Map(data.rounds.map((round) => [round.id, round]));
+  const flows: MemberWalletFlow[] = [];
+
+  for (const contribution of data.contributions) {
+    if (
+      contribution.memberId !== data.currentMember.id ||
+      !contribution.txHash ||
+      !["paid", "verifying"].includes(contribution.status)
+    ) {
+      continue;
+    }
+
+    const round = roundsById.get(contribution.roundId);
+    flows.push({
+      id: `contribution-${contribution.id}`,
+      direction: "out",
+      status: contribution.status === "paid" ? "confirmed" : "verifying",
+      title: `Contribution sent${round ? ` — Round ${round.roundNumber}` : ""}`,
+      description: "Sent from your wallet to the circle smart contract.",
+      amount: contribution.amountDue,
+      asset: data.circle.contributionAsset,
+      occurredAt: contribution.paidAt,
+      txHash: contribution.txHash,
+    });
+  }
+
+  for (const payout of data.payouts) {
+    if (payout.recipientMemberId !== data.currentMember.id || !payout.txHash) {
+      continue;
+    }
+
+    flows.push({
+      id: `payout-${payout.id}`,
+      direction: "in",
+      status: payout.status === "paid" ? "confirmed" : "scheduled",
+      title: `Payout received — Round ${payout.roundNumber}`,
+      description:
+        payout.status === "paid"
+          ? "Automatically released from the circle smart contract."
+          : "Payout transaction has been submitted and is awaiting final confirmation.",
+      amount: payout.payoutAmount,
+      asset: data.circle.contributionAsset,
+      occurredAt: payout.processedAt ?? payout.expectedPayoutAt,
+      txHash: payout.txHash,
+    });
+  }
+
+  const refundTransactionHashes = new Set<string>();
+  for (const event of data.auditEvents) {
+    if (event.memberId !== data.currentMember.id || !event.txHash) continue;
+
+    if (event.eventType === "collateral_posted") {
+      flows.push({
+        id: `collateral-posted-${event.id}`,
+        direction: "out",
+        status: "confirmed",
+        title: "Collateral locked in escrow",
+        description: "Locked for your remaining contribution obligations in this circle.",
+        amount: metadataAmount(event.metadata, ["amount", "collateral_amount"]) ?? collateralRequired,
+        asset: event.asset ?? data.circle.contributionAsset,
+        occurredAt: event.createdAt,
+        txHash: event.txHash,
+      });
+    }
+
+    if (event.eventType === "collateral_refunded") {
+      refundTransactionHashes.add(event.txHash);
+      flows.push({
+        id: `collateral-refunded-${event.id}`,
+        direction: "in",
+        status: "confirmed",
+        title: "Collateral returned",
+        description: "Returned from the circle smart contract to your wallet.",
+        amount: metadataAmount(event.metadata, ["amount", "refund_amount"]) ?? refundableCollateral,
+        asset: event.asset ?? data.circle.contributionAsset,
+        occurredAt: event.createdAt,
+        txHash: event.txHash,
+      });
+    }
+
+    if (event.eventType === "collateral_slashed") {
+      flows.push({
+        id: `collateral-slashed-${event.id}`,
+        direction: "escrow",
+        status: "confirmed",
+        title: "Collateral applied from escrow",
+        description: "This used collateral already locked in escrow; it is not a second wallet withdrawal.",
+        amount:
+          metadataAmount(event.metadata, ["slashed_amount", "amount"]) ??
+          data.currentMember.slashedAmount,
+        asset: event.asset ?? data.circle.contributionAsset,
+        occurredAt: event.createdAt,
+        txHash: event.txHash,
+      });
+    }
+  }
+
+  // The contract refunds collateral in the same transaction that completes a
+  // circle or cancels a draft. Older records did not create one audit row per
+  // member, so derive those confirmed incoming transfers from that transaction.
+  const finalPayout = data.payouts.find(
+    (payout) =>
+      payout.roundNumber === data.circle.totalRounds &&
+      payout.status === "paid" &&
+      payout.txHash,
+  );
+  const cancellation = data.auditEvents.find(
+    (event) => event.eventType === "circle_cancelled" && event.txHash,
+  );
+  const automaticRefund =
+    data.circle.status === "completed" && finalPayout?.txHash
+      ? {
+          id: `completion-refund-${finalPayout.id}`,
+          title: "Collateral returned on completion",
+          description: "Returned automatically when the last cycle payout completed.",
+          occurredAt: finalPayout.processedAt ?? finalPayout.expectedPayoutAt,
+          txHash: finalPayout.txHash,
+        }
+      : data.circle.status === "cancelled" && cancellation?.txHash
+        ? {
+            id: `cancellation-refund-${cancellation.id}`,
+            title: "Collateral refunded on cancellation",
+            description: "Returned automatically when the draft circle was cancelled.",
+            occurredAt: cancellation.createdAt,
+            txHash: cancellation.txHash,
+          }
+        : null;
+
+  if (automaticRefund && !refundTransactionHashes.has(automaticRefund.txHash)) {
+    flows.push({
+      ...automaticRefund,
+      direction: "in",
+      status: "confirmed",
+      amount: refundableCollateral,
+      asset: data.circle.contributionAsset,
+    });
+  }
+
+  const sortedFlows = [...flows].sort((left, right) => {
+    const leftTime = left.occurredAt ? new Date(left.occurredAt).getTime() : 0;
+    const rightTime = right.occurredAt ? new Date(right.occurredAt).getTime() : 0;
+    return rightTime - leftTime;
+  });
+  const visibleFlows =
+    directionFilter === "all"
+      ? sortedFlows
+      : sortedFlows.filter((flow) => flow.direction === directionFilter);
+  const totalIncoming = sortedFlows
+    .filter((flow) => flow.direction === "in")
+    .reduce((total, flow) => total + flow.amount, 0);
+  const totalOutgoing = sortedFlows
+    .filter((flow) => flow.direction === "out")
+    .reduce((total, flow) => total + flow.amount, 0);
+
+  const filters: Array<["all" | WalletFlowDirection, string]> = [
+    ["all", "All"],
+    ["in", "Received"],
+    ["out", "Sent"],
+    ["escrow", "Escrow"],
+  ];
+
+  return (
+    <div className="grid gap-6">
+      <SectionCard
+        title="Circle Transaction History"
+        description="Verified asset movements between your wallet and this circle's smart contract."
+      >
+        <div className="grid gap-4 sm:grid-cols-3">
+          <StatCard
+            label="Received"
+            value={formatAmount(totalIncoming, data.circle.contributionAsset)}
+            icon={ArrowDownLeft}
+          />
+          <StatCard
+            label="Sent"
+            value={formatAmount(totalOutgoing, data.circle.contributionAsset)}
+            icon={ArrowUpRight}
+          />
+          <StatCard
+            label="Net movement"
+            value={formatAmount(totalIncoming - totalOutgoing, data.circle.contributionAsset)}
+            icon={History}
+          />
+        </div>
+        <p className="mt-4 text-xs leading-5 text-muted-foreground">
+          Collateral stays in escrow after it leaves your wallet. A slash reduces
+          that escrow balance, rather than creating another wallet debit.
+        </p>
+      </SectionCard>
+
+      <SectionCard
+        title="Wallet movements"
+        description="Open a transaction hash to independently verify the movement on Stellar Expert."
+      >
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
+            {filters.map(([value, label]) => (
+              <Button
+                key={value}
+                type="button"
+                size="xs"
+                variant={directionFilter === value ? "default" : "outline"}
+                onClick={() => setDirectionFilter(value)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <Link
+            href="/dashboard/transactions"
+            className="text-sm font-semibold text-primary underline-offset-4 hover:underline"
+          >
+            View full wallet ledger
+          </Link>
+        </div>
+
+        {visibleFlows.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border p-8 text-center">
+            <History className="mx-auto size-8 text-muted-foreground" />
+            <p className="mt-3 font-semibold">No verified wallet movements yet</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Collateral deposits, contributions, payouts, and refunds will appear here once their on-chain transactions are recorded.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+            {visibleFlows.map((flow) => {
+              const isIncoming = flow.direction === "in";
+              const isEscrow = flow.direction === "escrow";
+              const Icon = isEscrow
+                ? LockKeyhole
+                : isIncoming
+                  ? ArrowDownLeft
+                  : ArrowUpRight;
+              const directionLabel = isEscrow
+                ? "Escrow"
+                : isIncoming
+                  ? "Received"
+                  : "Sent";
+              const statusLabel =
+                flow.status === "confirmed"
+                  ? "Confirmed"
+                  : flow.status === "verifying"
+                    ? "Verifying"
+                    : "Submitted";
+
+              return (
+                <div
+                  key={flow.id}
+                  className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div
+                      className={
+                        isEscrow
+                          ? "flex size-10 shrink-0 items-center justify-center rounded-full border border-amber-500/20 bg-amber-500/10 text-amber-700"
+                          : isIncoming
+                            ? "flex size-10 shrink-0 items-center justify-center rounded-full border border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
+                            : "flex size-10 shrink-0 items-center justify-center rounded-full border border-rose-500/20 bg-rose-500/10 text-rose-700"
+                      }
+                    >
+                      <Icon className="size-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold">{flow.title}</p>
+                        <Badge variant="outline" className="text-xs">
+                          {directionLabel}
+                        </Badge>
+                        <Badge
+                          variant={flow.status === "confirmed" ? "secondary" : "outline"}
+                          className="text-xs"
+                        >
+                          {statusLabel}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-sm text-muted-foreground">{flow.description}</p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <span>{formatWalletFlowTime(flow.occurredAt, data.circle.timeZone)}</span>
+                        <ExplorerLink value={flow.txHash} kind="tx" className="text-xs" label="View transaction" />
+                      </div>
+                    </div>
+                  </div>
+                  <p
+                    className={
+                      isEscrow
+                        ? "shrink-0 text-right font-semibold tabular-nums text-amber-700"
+                        : isIncoming
+                          ? "shrink-0 text-right font-semibold tabular-nums text-emerald-700"
+                          : "shrink-0 text-right font-semibold tabular-nums text-rose-700"
+                    }
+                  >
+                    {isEscrow ? "− " : isIncoming ? "+ " : "− "}
+                    {formatAmount(flow.amount, flow.asset)}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  );
+}
+
 function ActivateButton({
   circleId,
   ready,
@@ -1018,7 +1388,11 @@ function CreatorDashboard({
   data: CreatorDashboardDTO;
   isTabContentOnly?: boolean;
 }) {
+  const router = useRouter();
+  const [activationOpen, setActivationOpen] = useState(false);
   const currentRound = getCurrentRound(data.rounds, data.circle.currentRound);
+  const creatorMember = data.members.find((member) => member.role === "creator");
+  const [isPostingCreatorCollateral, setIsPostingCreatorCollateral] = useState(false);
   const postedCollateral = data.members.filter(
     (member) => member.collateralStatus === "posted",
   ).length;
@@ -1042,24 +1416,109 @@ function CreatorDashboard({
   ).length;
   const allPresentValidated =
     data.members.length > 0 && readyMembers === data.members.length;
+  const payoutOrderConfigured =
+    data.members.length > 0 &&
+    [...data.members]
+      .sort((left, right) => left.payoutRound - right.payoutRound)
+      .every((member, index) => member.payoutRound === index + 1);
+  const settingsConfigured =
+    data.circle.contributionAmount > 0 && data.circle.intervalSeconds > 0;
+  // Small circles should not be blocked by the global three-member target.
+  // Keep three as the upper bound for larger circles, while requiring every
+  // member currently in this roster to be validated.
+  const minimumMembersRequired = Math.min(MIN_CYCLE_MEMBERS, data.members.length);
   const activationReady =
-    readyMembers >= MIN_CYCLE_MEMBERS &&
+    readyMembers >= minimumMembersRequired &&
     allPresentValidated &&
-    data.circle.payoutOrderLocked &&
-    data.circle.settingsLocked &&
-    data.circle.rulesLocked;
+    payoutOrderConfigured &&
+    settingsConfigured;
+
+  const handlePostCreatorCollateral = async () => {
+    if (!creatorMember) return;
+    setIsPostingCreatorCollateral(true);
+    try {
+      const wallet = await StellarWalletsKit.getAddress();
+      const creatorAddress = wallet?.address;
+      if (!creatorAddress) {
+        throw new Error("Connect the creator's Stellar wallet first.");
+      }
+      if (creatorAddress.toUpperCase() !== creatorMember.walletAddress.toUpperCase()) {
+        throw new Error("Connect the wallet that created this circle.");
+      }
+
+      const { txXdr } = await triggerPostCollateralOnChain(
+        creatorAddress,
+        env.contractId,
+        data.circle.id,
+        getTokenContractId(data.circle.contributionAsset),
+      );
+      const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
+        networkPassphrase: env.sorobanNetworkPassphrase,
+        address: creatorAddress,
+      });
+      const { hash } = await submitSignedTransaction(signedTxXdr);
+      const result = await confirmCreatorCollateralAction(data.circle.id, hash);
+      if (!result.success) {
+        throw new Error(result.error || "Creator collateral could not be confirmed.");
+      }
+
+      toast.success("Creator collateral posted successfully.");
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not post creator collateral.");
+    } finally {
+      setIsPostingCreatorCollateral(false);
+    }
+  };
 
   const tabContent = (
     <>
       <TabsContent value="overview" className="grid gap-6">
+        <div className="flex justify-end">
+          <Button onClick={() => setActivationOpen(true)}>
+            <ShieldCheck className="size-4" />
+            Activation Gate
+          </Button>
+        </div>
         <CircleStatusBanner status={data.circle.status} />
         {data.circle.status === "cancelled" ? (
           <Alert className="border-rose-500/20 bg-rose-50/50 text-rose-700 animate-enter-soft">
             <AlertTriangle className="size-4 text-rose-500" />
             <AlertTitle className="font-bold text-rose-800">Circle Cancelled</AlertTitle>
             <AlertDescription className="flex flex-col gap-3 mt-1.5 sm:flex-row sm:items-center sm:justify-between">
-              <span>This circle has been cancelled. Members can reclaim their collateral. You can permanently delete this circle to remove it from all dashboards.</span>
-              <DeleteCircleButton circleId={data.circle.id} />
+              <span>This circle has been cancelled. Any posted collateral was refunded automatically. Delete it from Settings if you want to remove it from the dashboard.</span>
+            </AlertDescription>
+          </Alert>
+        ) : data.circle.status === "draft" ? (
+          <Alert className="border-amber-500/20 bg-amber-50/50 text-amber-700 animate-enter-soft">
+            <AlertTriangle className="size-4 text-amber-500" />
+            <AlertTitle className="font-bold text-amber-800">Unstarted Draft Circle</AlertTitle>
+            <AlertDescription className="flex flex-col gap-3 mt-1.5 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                {creatorMember?.collateralStatus === "posted"
+                  ? "Waiting for every invited member to post collateral."
+                  : "Post your creator collateral to begin setup. The amount is based on your payout position."}
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {creatorMember?.collateralStatus !== "posted" ? (
+                  <Button
+                    disabled={isPostingCreatorCollateral}
+                    onClick={handlePostCreatorCollateral}
+                  >
+                    {isPostingCreatorCollateral
+                      ? "Posting collateral..."
+                      : `Post ${formatAmount(
+                          calculateCollateral(
+                            data.circle.memberCount,
+                            data.circle.contributionAmount,
+                            creatorMember?.payoutRound ?? 1,
+                            data.circle.cycleCount,
+                          ),
+                          data.circle.contributionAsset,
+                        )} collateral`}
+                  </Button>
+                ) : null}
+              </div>
             </AlertDescription>
           </Alert>
         ) : null}
@@ -1125,12 +1584,20 @@ function CreatorDashboard({
         </SectionCard>
       </TabsContent>
 
-      <TabsContent value="activation" className="grid gap-6">
+      <Dialog open={activationOpen} onOpenChange={setActivationOpen}>
+        <DialogContent className="top-4 right-4 left-auto max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-none translate-x-0 translate-y-0 overflow-hidden p-0 sm:w-[min(92vw,56rem)]">
+          <DialogHeader className="shrink-0 border-b border-border px-6 py-5">
+            <DialogTitle>Activation Gate</DialogTitle>
+            <DialogDescription>
+              Every requirement below must pass before the circle can begin its first round.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
         <Alert>
           <ShieldCheck className="size-4" />
           <AlertTitle>Starting a cycle requires all gates to pass</AlertTitle>
           <AlertDescription>
-            A cycle can start once at least {MIN_CYCLE_MEMBERS} members have
+            A cycle can start once at least {minimumMembersRequired} members have
             validated collateral and every member currently in the circle is
             validated. Members added later join the next cycle, not the one in
             progress.
@@ -1141,8 +1608,8 @@ function CreatorDashboard({
             {(
               [
                 [
-                  `${readyMembers} / ${MIN_CYCLE_MEMBERS} minimum members validated`,
-                  readyMembers >= MIN_CYCLE_MEMBERS,
+                  `${readyMembers} / ${minimumMembersRequired} minimum members validated`,
+                  readyMembers >= minimumMembersRequired,
                 ],
                 [
                   `${postedCollateral} / ${data.members.length} collateral posted`,
@@ -1157,16 +1624,12 @@ function CreatorDashboard({
                   acceptedAgreements === data.members.length,
                 ],
                 [
-                  "Payout order selected and locked",
-                  data.circle.payoutOrderLocked,
+                  "Payout order selected during creation",
+                  payoutOrderConfigured,
                 ],
                 [
-                  "Contribution amount and interval locked",
-                  data.circle.settingsLocked,
-                ],
-                [
-                  "Default and collateral rules locked",
-                  data.circle.rulesLocked,
+                  "Contribution amount and interval configured",
+                  settingsConfigured,
                 ],
               ] as [string, boolean][]
             ).map(([label, complete]) => (
@@ -1186,9 +1649,9 @@ function CreatorDashboard({
                 Why can&apos;t I start the cycle yet?
               </p>
               <ul className="mt-2 list-inside list-disc space-y-1">
-                {readyMembers < MIN_CYCLE_MEMBERS ? (
+                {readyMembers < minimumMembersRequired ? (
                   <li>
-                    Need at least {MIN_CYCLE_MEMBERS} members with validated
+                    Need at least {minimumMembersRequired} members with validated
                     collateral — {readyMembers} ready so far.
                   </li>
                 ) : null}
@@ -1215,13 +1678,12 @@ function CreatorDashboard({
                     not yet accepted.
                   </li>
                 ) : null}
-                {!data.circle.payoutOrderLocked ? (
-                  <li>Payout order not locked.</li>
+                {!payoutOrderConfigured ? (
+                  <li>Payout order is incomplete.</li>
                 ) : null}
-                {!data.circle.settingsLocked ? (
-                  <li>Settings not locked.</li>
+                {!settingsConfigured ? (
+                  <li>Contribution amount or interval is incomplete.</li>
                 ) : null}
-                {!data.circle.rulesLocked ? <li>Rules not locked.</li> : null}
               </ul>
             </div>
           ) : null}
@@ -1232,7 +1694,14 @@ function CreatorDashboard({
             status={data.circle.status}
           />
         </SectionCard>
-      </TabsContent>
+          </div>
+          <DialogFooter className="mt-0 shrink-0 border-t border-border px-6 py-4">
+            <Button variant="outline" onClick={() => setActivationOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <TabsContent value="members">
         <SectionCard
@@ -1250,46 +1719,12 @@ function CreatorDashboard({
         </SectionCard>
       </TabsContent>
 
-      <TabsContent value="contributions">
+      <TabsContent value="audit">
         <SectionCard
-          title="Contribution Tracking"
-          description="On-chain contribution verification is the primary flow."
+          title="Audit Log"
+          description="Complete activity history — who joined, paid, received payouts, and when."
         >
-          <ContributionTable
-            contributions={data.contributions}
-            members={data.members}
-            asset={data.circle.contributionAsset}
-          />
-        </SectionCard>
-      </TabsContent>
-
-      <TabsContent value="payouts" className="grid gap-6">
-        {data.circle.status === "active" ? (
-          <SectionCard
-            title="Release round payout"
-            description="Send the current round's pool to the on-chain recipient. Requires all contributions in."
-          >
-            <RoundPayoutPanel
-              circleId={data.circle.id}
-              circleAsset={data.circle.contributionAsset}
-              currentRound={data.circle.currentRound}
-              recipient={
-                data.members.find((m) => m.payoutRound === data.circle.currentRound) ?? null
-              }
-              allContributed={
-                data.members.length > 0 &&
-                data.contributions.filter(
-                  (c) => c.roundId === currentRound?.id && c.status === "paid"
-                ).length >= data.members.length
-              }
-            />
-          </SectionCard>
-        ) : null}
-        <SectionCard
-          title="Payout Order"
-          description="Once active, payout order cannot be changed."
-        >
-          <PayoutTimeline payouts={data.payouts} members={data.members} />
+          <AuditLog events={data.auditEvents} members={data.members} timeZone={data.circle.timeZone} />
         </SectionCard>
       </TabsContent>
 
@@ -1306,33 +1741,28 @@ function CreatorDashboard({
             payouts={data.payouts}
             contributions={data.contributions}
             members={data.members}
+            currentMemberId={creatorMember?.id}
             asset={data.circle.contributionAsset}
+            timeZone={data.circle.timeZone}
           />
         </SectionCard>
       </TabsContent>
 
-      <TabsContent value="defaults">
-        <DefaultProtectionCreatorView
-          circle={data.circle}
-          members={data.members}
-        />
-      </TabsContent>
-
-      <TabsContent value="audit">
+      <TabsContent value="agreement">
         <SectionCard
-          title="Audit Log"
-          description="Complete activity history — who joined, paid, received payouts, and when."
+          title="Circle Agreement"
+          description="The rules, protection terms, collateral, and obligations that every member accepted."
         >
-          <AuditLog events={data.auditEvents} members={data.members} />
+          <DefaultProtectionCreatorView circle={data.circle} members={data.members} />
         </SectionCard>
       </TabsContent>
 
-      <TabsContent value="settings">
+      <TabsContent value="settings" className="grid gap-6">
         <SectionCard
-          title="Pool Settings"
-          description="Financial settings lock after activation; only non-financial metadata stays editable."
+          title="Settings"
+          description="Financial settings, timezone, cycle configuration, and emergency controls for this circle."
         >
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <StatCard
               label="Contribution"
               value={formatAmount(
@@ -1347,8 +1777,18 @@ function CreatorDashboard({
               icon={CalendarDays}
             />
             <StatCard
+              label="Cycles"
+              value={`${data.circle.cycleCount} (${data.circle.totalRounds} rounds)`}
+              icon={RefreshCcw}
+            />
+            <StatCard
+              label="Timezone"
+              value={data.circle.timeZone}
+              icon={Clock}
+            />
+            <StatCard
               label="Collateral"
-              value={`Dynamic (max ${formatAmount(calculateCollateral(data.circle.memberCount, data.circle.contributionAmount, 1), data.circle.contributionAsset)})`}
+              value={`Dynamic (max ${formatAmount(calculateCollateral(data.circle.memberCount, data.circle.contributionAmount, 1, data.circle.cycleCount), data.circle.contributionAsset)})`}
               icon={LockKeyhole}
             />
             <StatCard
@@ -1357,10 +1797,17 @@ function CreatorDashboard({
               icon={Settings}
             />
           </div>
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-white p-4">
+            <div>
+              <p className="font-semibold">Remove circle</p>
+              <p className="text-sm text-muted-foreground">
+                Available only when the server-side deletion rules allow it.
+              </p>
+            </div>
+            <DeleteCircleButton circleId={data.circle.id} />
+          </div>
         </SectionCard>
-      </TabsContent>
-
-      <TabsContent value="emergency" className="grid gap-6">
+        <SectionCard title="Emergency controls" description="Pause, resume, or cancel according to the circle's safety rules.">
         <EmergencyActionsPanel
           circleId={data.circle.id}
           circleStatus={data.circle.status}
@@ -1403,8 +1850,9 @@ function CreatorDashboard({
             if (!res.success) throw new Error(res.error);
             toast.success("Circle successfully cancelled on-chain!");
           }}
-        />
+        ></EmergencyActionsPanel>
         <EmergencyRulesDisplay />
+        </SectionCard>
       </TabsContent>
     </>
   );
@@ -1418,15 +1866,11 @@ function CreatorDashboard({
       <TabsList className="max-w-full overflow-x-auto" variant="line">
         {[
           ["overview", "Overview"],
-          ["activation", "Activation Gate"],
           ["members", "Members & Collateral"],
-          ["contributions", "Contributions"],
-          ["payouts", "Payout Order"],
-          ["calendar", "Cycle Calendar"],
-          ["defaults", "Default Protection"],
           ["audit", "Audit Log"],
-          ["settings", "Pool Settings"],
-          ["emergency", "Emergency"],
+          ["calendar", "Cycle Calendar"],
+          ["agreement", "Agreement"],
+          ["settings", "Settings"],
         ].map(([value, label]) => (
           <TabsTrigger key={value} value={value}>
             {label}
@@ -1445,77 +1889,15 @@ function MemberDashboard({
   data: MemberDashboardDTO;
   isTabContentOnly?: boolean;
 }) {
-  const [activeInviteNotification, setActiveInviteNotification] =
-    useState<DashboardNotification | null>(null);
-  const [isAcceptingInvite, setIsAcceptingInvite] = useState(false);
-  const [inviteActionError, setInviteActionError] = useState<string | null>(
-    null,
+  const [loading, setLoading] = useState(false);
+
+  const deleteProposedEvent = data.auditEvents.find((e) => e.eventType === "delete_proposed");
+  const myVoteEvent = data.auditEvents.find(
+    (e) => e.eventType === "delete_voted" && e.memberId === data.currentMember.id
   );
-
-  const handleAcceptInvite = async () => {
-    if (!activeInviteNotification) return;
-    setIsAcceptingInvite(true);
-    setInviteActionError(null);
-
-    const circleId = activeInviteNotification.circleId || data.circle.id;
-    const notificationId = activeInviteNotification.id;
-
-    try {
-      // 1. Connect wallet & fetch active address
-      const addressRes = await StellarWalletsKit.getAddress();
-      const userAddress = addressRes?.address;
-      if (!userAddress) {
-        throw new Error(
-          "Stellar wallet address not found. Please connect your wallet first.",
-        );
-      }
-      if (
-        userAddress.toUpperCase() !==
-        data.currentMember.walletAddress.toUpperCase()
-      ) {
-        throw new Error(
-          "Connect the Stellar wallet that received this invitation.",
-        );
-      }
-
-      if (!env.contractId) {
-        throw new Error("NEXT_PUBLIC_CIRCULO_CONTRACT_ID is not configured.");
-      }
-      const tokenContractId = getTokenContractId(data.circle.contributionAsset);
-
-      const { txXdr } = await triggerPostCollateralOnChain(
-        userAddress,
-        env.contractId,
-        circleId,
-        tokenContractId,
-      );
-
-      const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
-        networkPassphrase: env.sorobanNetworkPassphrase,
-        address: userAddress,
-      });
-      const { hash: txHash } = await submitSignedTransaction(signedTxXdr);
-
-      const res = await acceptAgreementAction(circleId, notificationId, txHash);
-      if (res.success) {
-        toast.success(
-          "Invitation accepted and collateral posted successfully!",
-        );
-        setActiveInviteNotification(null);
-      } else {
-        throw new Error(res.error || "Failed to accept circle invitation.");
-      }
-    } catch (err: unknown) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      console.error("Invite acceptance error:", error);
-      toast.error(error.message || "Failed to accept invite.");
-      setInviteActionError(
-        error.message || "Failed to process on-chain transaction.",
-      );
-    } finally {
-      setIsAcceptingInvite(false);
-    }
-  };
+  
+  const deleteProposed = !!deleteProposedEvent;
+  const hasVoted = !!myVoteEvent;
 
   const currentRound = getCurrentRound(data.rounds, data.circle.currentRound);
   const myContribution = data.contributions.find(
@@ -1523,6 +1905,12 @@ function MemberDashboard({
       contribution.memberId === data.currentMember.id &&
       contribution.roundId === currentRound?.id,
   );
+  const paymentButtonStatus: "idle" | "verifying" | "paid" =
+    myContribution?.status === "paid"
+      ? "paid"
+      : myContribution?.status === "verifying"
+        ? "verifying"
+        : "idle";
   const paidMembers = data.contributions.filter(
     (contribution) => contribution.status === "paid",
   ).length;
@@ -1549,16 +1937,7 @@ function MemberDashboard({
             <AlertTriangle className="size-4 text-rose-500" />
             <AlertTitle className="font-bold text-rose-800">Circle Cancelled by Creator</AlertTitle>
             <AlertDescription className="flex flex-col gap-3 mt-1.5 sm:flex-row sm:items-center sm:justify-between">
-              <span>This savings circle has been cancelled. If you previously deposited collateral, you can withdraw your funds back to your wallet.</span>
-              {data.currentMember.collateralStatus === "posted" ? (
-                <RefundButton
-                  circleId={data.circle.id}
-                  memberAddress={data.currentMember.walletAddress}
-                  asset={data.circle.contributionAsset}
-                />
-              ) : (
-                <span className="text-xs font-semibold text-rose-500 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-100">No collateral remaining</span>
-              )}
+              <span>This savings circle has been cancelled. Any posted collateral was refunded automatically on-chain.</span>
             </AlertDescription>
           </Alert>
         ) : null}
@@ -1581,6 +1960,48 @@ function MemberDashboard({
                 </Button>
               </Link>
             </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {deleteProposed && !hasVoted ? (
+          <Alert className="border-rose-500/20 bg-rose-50/50 text-rose-700">
+            <AlertTriangle className="size-4 text-rose-500" />
+            <AlertTitle className="font-bold text-rose-800">Proposal to Delete Circle</AlertTitle>
+            <AlertDescription className="flex flex-col gap-3 mt-1.5 sm:flex-row sm:items-center sm:justify-between">
+              <span>A member has proposed to delete this circle. Do you agree to delete it? If the majority agrees, the circle will be deleted and collateral refunded.</span>
+              <div className="flex gap-2">
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  disabled={loading}
+                  onClick={async () => {
+                    setLoading(true);
+                    await voteDeleteCircleAction(data.circle.id, data.currentMember.id, "reject");
+                    setLoading(false);
+                  }}
+                >
+                  Reject
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant="destructive" 
+                  disabled={loading}
+                  onClick={async () => {
+                    setLoading(true);
+                    await voteDeleteCircleAction(data.circle.id, data.currentMember.id, "approve");
+                    setLoading(false);
+                  }}
+                >
+                  Approve
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        ) : deleteProposed && hasVoted ? (
+          <Alert className="border-blue-500/20 bg-blue-50/50 text-blue-700">
+            <Info className="size-4 text-blue-500" />
+            <AlertTitle className="font-bold text-blue-800">Vote Recorded</AlertTitle>
+            <AlertDescription>Your vote to delete the circle has been recorded. Waiting for other members.</AlertDescription>
           </Alert>
         ) : null}
 
@@ -1625,97 +2046,72 @@ function MemberDashboard({
             icon={ShieldAlert}
           />
         </div>
-      </TabsContent>
-
-      <TabsContent value="status" className="grid gap-6">
         <CircleStatusCard
           status={data.circle.status}
           currentRound={data.circle.currentRound}
           totalRounds={data.circle.totalRounds}
         />
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <StatCard
-            label="Your Due"
-            value={formatAmount(
-              myContribution?.amountDue ?? data.circle.contributionAmount,
-              data.circle.contributionAsset,
-            )}
-            icon={PiggyBank}
-          />
-          <StatCard
-            label="Due Date"
-            value={formatDate(currentRound?.dueAt ?? null)}
-            icon={CalendarDays}
-          />
-          <StatCard
-            label="Your Payout"
-            value={`Round ${data.currentMember.payoutRound}`}
-            icon={WalletCards}
-          />
-          <StatCard
-            label="Collateral"
-            value={titleCase(data.currentMember.collateralStatus)}
-            icon={LockKeyhole}
-          />
-          <StatCard
-            label="Status"
-            value={titleCase(
-              data.currentMember.restrictionStatus === "clear"
-                ? data.currentMember.paymentStatus
-                : data.currentMember.restrictionStatus,
-            )}
-            icon={ShieldCheck}
-          />
+        <div className="grid gap-4 md:grid-cols-2">
+          <SectionCard title="Your status" description="Your contribution, payout position, and account standing.">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your due</p>
+                <p className="mt-1 text-lg font-semibold">
+                  {formatAmount(myContribution?.amountDue ?? data.circle.contributionAmount, data.circle.contributionAsset)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Due date</p>
+                <p className="mt-1 text-lg font-semibold">{formatDate(currentRound?.dueAt ?? null)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your payout</p>
+                <p className="mt-1 text-lg font-semibold">Round {data.currentMember.payoutRound}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Standing</p>
+                <p className="mt-1 text-lg font-semibold">
+                  {titleCase(data.currentMember.restrictionStatus === "clear" ? data.currentMember.paymentStatus : data.currentMember.restrictionStatus)}
+                </p>
+              </div>
+            </div>
+          </SectionCard>
+          {data.circle.status === "active" && currentRound ? (
+            <WalletPayButton
+              circleId={data.circle.id}
+              amount={myContribution?.amountDue ?? data.circle.contributionAmount}
+              asset={data.circle.contributionAsset}
+              dueDate={currentRound.dueAt}
+              status={paymentButtonStatus}
+            />
+          ) : (
+            <SectionCard title="Contribution payment" description="Payments become available when the circle starts its current round.">
+              <p className="text-sm text-muted-foreground">This circle is not currently accepting contributions.</p>
+            </SectionCard>
+          )}
         </div>
       </TabsContent>
 
-      <TabsContent value="pay">
-        <SectionCard
-          title="Pay Contribution"
-          description="Use wallet payment and on-chain verification as the main flow."
-        >
-          <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
-            <div>
-              <p className="text-3xl font-semibold">
-                {formatAmount(
-                  myContribution?.amountDue ?? data.circle.contributionAmount,
-                  data.circle.contributionAsset,
-                )}
-              </p>
-              <p className="mt-2 text-muted-foreground">
-                Due {formatDate(currentRound?.dueAt ?? null)}
-              </p>
-              <div className="mt-4">
-                <StatusBadge status={myContribution?.status ?? "not_due"} />
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <Button>
-                Pay{" "}
-                {formatAmount(
-                  data.circle.contributionAmount,
-                  data.circle.contributionAsset,
-                )}
-              </Button>
-              <Button variant="outline">View transaction</Button>
-            </div>
-          </div>
-        </SectionCard>
+      <TabsContent value="transactions" className="grid gap-6">
+        <MemberTransactionHistory data={data} />
       </TabsContent>
 
-      <TabsContent value="timeline">
-        <SectionCard
-          title="Payout Timeline"
-          description="Payout order was locked before activation. Members can view it, not edit it."
-        >
-          <PayoutTimeline payouts={data.payouts} members={data.members} />
-        </SectionCard>
+      <TabsContent value="calendar">
+        <CycleCalendarView
+          rounds={data.rounds}
+          payouts={data.payouts}
+          contributions={data.contributions}
+          members={data.members}
+          currentMemberId={data.currentMember.id}
+          asset={data.circle.contributionAsset}
+          timeZone={data.circle.timeZone}
+        />
       </TabsContent>
 
-      <TabsContent value="transparency" className="grid gap-6">
+      <TabsContent value="audit" className="grid gap-6">
         <SectionCard
-          title="Group Transparency"
-          description="Member-safe pool health without creator-only settings."
+          title="Audit Log"
+          description="Contribution, payout, and circle activity visible to every member."
         >
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
@@ -1745,206 +2141,54 @@ function MemberDashboard({
         </SectionCard>
         <SectionCard
           title="Activity History"
-          description="Record of who joined, paid, received payouts, and when."
+          description="Verified payments, payouts, and important circle events."
         >
-          <AuditLog events={data.auditEvents} members={data.members} />
+          <AuditLog events={data.auditEvents} members={data.members} timeZone={data.circle.timeZone} />
         </SectionCard>
       </TabsContent>
 
-      <TabsContent value="collateral">
+      <TabsContent value="collateral" className="grid gap-6">
+        <SectionCard
+          title="Collateral & Agreement"
+          description="Your collateral status and the protection rules you accepted for this circle."
+        >
+          <p className="text-sm text-muted-foreground">
+            Review your current protection status below. The full agreement remains available from the circle agreement route.
+          </p>
+        </SectionCard>
         <DefaultProtectionMemberView
           circle={data.circle}
           member={data.currentMember}
         />
       </TabsContent>
 
-      <TabsContent value="rules" className="grid gap-6">
+      <TabsContent value="settings" className="grid gap-6">
         <SectionCard
-          title="Rules & Agreement"
-          description="Short, explicit participation boundaries."
+          title="Circle Settings"
+          description="Member-specific settings and emergency controls."
         >
-          <div className="grid gap-3">
-            {[
-              "This is not an investment, lending product, yield product, or public fundraiser.",
-              "Contribution amount, member roster, payout order, collateral rules, and interval are locked before activation.",
-              "Collateral may be slashed after missed contribution rules are met.",
-              "The contract pays members directly. Circulo does not custody funds.",
-              "Cash-in and cash-out are handled by licensed partners, not Circulo.",
-            ].map((rule) => (
-              <div
-                key={rule}
-                className="rounded-xl border border-border bg-white p-4 text-sm leading-6"
-              >
-                {rule}
-              </div>
-            ))}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border rounded-lg bg-slate-50/50 gap-4">
+            <div>
+              <h4 className="font-semibold text-slate-900">Propose Circle Deletion</h4>
+              <p className="text-sm text-slate-500 mt-1 max-w-xl">
+                If you want to leave and delete the circle, you can propose a deletion. All members will need to vote on this proposal in the Overview tab before the circle is cancelled.
+              </p>
+            </div>
+            <Button
+              variant="destructive"
+              disabled={deleteProposed || loading}
+              onClick={async () => {
+                setLoading(true);
+                await proposeDeleteCircleAction(data.circle.id, data.currentMember.id);
+                setLoading(false);
+              }}
+              className="shrink-0"
+            >
+              {deleteProposed ? "Deletion Proposed" : "Propose Deletion"}
+            </Button>
           </div>
         </SectionCard>
-        <EmergencyRulesDisplay />
       </TabsContent>
-
-      <TabsContent value="notifications" className="grid gap-6">
-        <SectionCard
-          title="Notifications"
-          description="Member-facing status updates and action reminders."
-        >
-          {data.notifications.length > 0 ? (
-            <div className="grid gap-3">
-              {data.notifications.map((notification) => {
-                const isInvite =
-                  notification.notificationType === "invite" &&
-                  !notification.readAt;
-                return (
-                  <div
-                    key={notification.id}
-                    className={cn(
-                      "rounded-xl border border-border bg-white p-4 transition-all",
-                      isInvite &&
-                        "cursor-pointer hover:border-indigo-500/50 hover:bg-indigo-500/[0.01]",
-                    )}
-                    onClick={() => {
-                      if (isInvite) {
-                        setActiveInviteNotification(notification);
-                      }
-                    }}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <p className="font-semibold">{notification.title}</p>
-                        {isInvite && (
-                          <Badge
-                            variant="outline"
-                            className="text-xs bg-indigo-500/10 text-indigo-500 border-indigo-500/20 font-medium"
-                          >
-                            Action Required
-                          </Badge>
-                        )}
-                      </div>
-                      <StatusBadge
-                        status={notification.readAt ? "completed" : "pending"}
-                      />
-                    </div>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      {notification.body}
-                    </p>
-                    {isInvite && (
-                      <p className="mt-3 text-xs text-indigo-500 font-semibold flex items-center gap-1">
-                        Click to review invitation & deposit collateral →
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No notifications yet.
-            </p>
-          )}
-        </SectionCard>
-        <ReminderSettingsPanel
-          reminderScheduleHours={data.circle.reminderScheduleHours}
-        />
-      </TabsContent>
-
-      <Dialog
-        open={!!activeInviteNotification}
-        onOpenChange={(open) => {
-          if (!open) {
-            setActiveInviteNotification(null);
-            setInviteActionError(null);
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Savings Circle Invitation</DialogTitle>
-            <DialogDescription>
-              Confirm your participation in the savings circle and post your
-              collateral deposit.
-            </DialogDescription>
-          </DialogHeader>
-
-          {activeInviteNotification && (
-            <div className="mt-4 space-y-4">
-              <div className="rounded-xl border border-border bg-slate-50 p-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Circle Name</span>
-                  <span className="font-semibold text-foreground">
-                    {data.circle.name}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">
-                    Contribution Amount
-                  </span>
-                  <span className="font-semibold text-foreground">
-                    {data.circle.contributionAmount}{" "}
-                    {data.circle.contributionAsset}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">
-                    Collateral Required
-                  </span>
-                  <span className="font-bold text-indigo-600">
-                    {calculateCollateral(
-                      data.circle.memberCount,
-                      data.circle.contributionAmount,
-                      data.currentMember.payoutRound,
-                    )}{" "}
-                    {data.circle.contributionAsset}
-                  </span>
-                </div>
-              </div>
-
-              <div className="text-xs text-muted-foreground bg-indigo-50 border border-indigo-100 p-3 rounded-xl leading-5">
-                <span className="font-bold text-indigo-600 block mb-1">
-                  🔒 Non-Custodial Escrow Security
-                </span>
-                Accepting this invitation requires you to deposit the collateral
-                to the circle&apos;s automated smart contract escrow. The
-                platform operators never hold or control your funds. The deposit
-                will be automatically deducted from your connected Stellar
-                wallet.
-              </div>
-
-              {inviteActionError && (
-                <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 p-3 rounded-xl">
-                  {inviteActionError}
-                </div>
-              )}
-            </div>
-          )}
-
-          <DialogFooter className="gap-2 sm:gap-0 mt-6">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setActiveInviteNotification(null);
-                setInviteActionError(null);
-              }}
-              disabled={isAcceptingInvite}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleAcceptInvite}
-              disabled={isAcceptingInvite}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold flex items-center justify-center min-w-[120px]"
-            >
-              {isAcceptingInvite ? (
-                <>
-                  <Loader2 className="size-4 animate-spin mr-2" />
-                  Processing...
-                </>
-              ) : (
-                "Accept & Pay"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 
@@ -1957,13 +2201,11 @@ function MemberDashboard({
       <TabsList className="max-w-full overflow-x-auto" variant="line">
         {[
           ["overview", "Overview"],
-          ["status", "My Status"],
-          ["pay", "Pay Contribution"],
-          ["timeline", "Payout Timeline"],
-          ["transparency", "Group Transparency"],
-          ["collateral", "Collateral Status"],
-          ["rules", "Rules & Agreement"],
-          ["notifications", "Notifications"],
+          ["transactions", "Transactions"],
+          ["calendar", "Cycle Calendar"],
+          ["audit", "Audit Log"],
+          ["collateral", "Collateral & Agreement"],
+          ["settings", "Settings"],
         ].map(([value, label]) => (
           <TabsTrigger key={value} value={value}>
             {label}
@@ -2006,74 +2248,6 @@ export function DashboardViews({
     return <MemberDashboard data={data} isTabContentOnly={isTabContentOnly} />;
   }
   return <DashboardEmptyState configured={data.configured} />;
-}
-
-function RefundButton({
-  circleId,
-  memberAddress,
-  asset,
-}: {
-  circleId: string;
-  memberAddress: string;
-  asset: string;
-}) {
-  const [loading, setLoading] = useState(false);
-
-  async function handleRefund() {
-    setLoading(true);
-    try {
-      const addressRes = await StellarWalletsKit.getAddress();
-      const currentAddress = addressRes?.address;
-      if (!currentAddress || currentAddress.toUpperCase() !== memberAddress.toUpperCase()) {
-        throw new Error(`Connect the wallet address: ${memberAddress}`);
-      }
-
-      if (!env.contractId) {
-        throw new Error("NEXT_PUBLIC_CIRCULO_CONTRACT_ID is not configured.");
-      }
-
-      toast.info("Preparing on-chain collateral refund transaction. Please sign...");
-
-      const tokenContractId = getTokenContractId(asset);
-      const { txXdr } = await triggerClaimRefundOnChain(
-        memberAddress,
-        env.contractId,
-        circleId,
-        tokenContractId
-      );
-
-      const { signedTxXdr } = await StellarWalletsKit.signTransaction(txXdr, {
-        networkPassphrase: env.sorobanNetworkPassphrase,
-        address: memberAddress,
-      });
-
-      toast.info("Submitting refund transaction to Stellar Testnet...");
-      const { hash } = await submitSignedTransaction(signedTxXdr);
-
-      const res = await logCollateralRefundAction(circleId, memberAddress, hash);
-      if (res.success) {
-        toast.success("Collateral successfully refunded to your wallet!");
-      } else {
-        throw new Error(res.error || "Failed to complete refund logging.");
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Refund failed");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <Button
-      size="sm"
-      disabled={loading}
-      onClick={handleRefund}
-      className="bg-rose-600 hover:bg-rose-700 text-white font-semibold shadow-sm flex items-center gap-1.5"
-    >
-      {loading ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowDownCircle className="size-3.5" />}
-      Claim Refund
-    </Button>
-  );
 }
 
 function DeleteCircleButton({ circleId }: { circleId: string }) {

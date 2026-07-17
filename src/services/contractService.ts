@@ -12,8 +12,21 @@ import {
 } from "@stellar/stellar-sdk";
 
 import { assertTestnetConfig, env } from "@/lib/env";
+import { stellarAmountToBaseUnits } from "@/lib/stellar-amount";
 
 const rpcServer = new rpc.Server(env.sorobanRpcUrl);
+
+export class ContributionAlreadyPaidError extends Error {
+  readonly round: number;
+  readonly txHash: string | null;
+
+  constructor(round: number, txHash: string | null) {
+    super(`This contribution is already paid on-chain for round ${round}.`);
+    this.name = "ContributionAlreadyPaidError";
+    this.round = round;
+    this.txHash = txHash;
+  }
+}
 
 function assertAccountId(address: string, label: string) {
   if (!StrKey.isValidEd25519PublicKey(address)) {
@@ -25,12 +38,6 @@ function assertContractId(address: string, label: string) {
   if (!StrKey.isValidContract(address)) {
     throw new Error(`${label} is not a valid Stellar contract ID.`);
   }
-}
-
-function assertPositiveAmount(amount: number | string) {
-  const value = BigInt(amount);
-  if (value <= BigInt(0)) throw new Error("Transaction amount must be greater than zero.");
-  return value;
 }
 
 export function uuidToU128(uuid: string): bigint {
@@ -63,6 +70,147 @@ async function buildPreparedTransaction(
   return rpcServer.prepareTransaction(transaction);
 }
 
+async function readContractValue(
+  sourceAddress: string,
+  contractAddress: string,
+  functionName: string,
+  ...args: xdr.ScVal[]
+) {
+  const sourceAccount = await rpcServer.getAccount(sourceAddress);
+  const transaction = new TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: env.sorobanNetworkPassphrase,
+  })
+    .addOperation(new Contract(contractAddress).call(functionName, ...args))
+    .setTimeout(30)
+    .build();
+  const simulation = await rpcServer.simulateTransaction(transaction);
+  if (!rpc.Api.isSimulationSuccess(simulation) || !simulation.result) {
+    throw new Error(`Could not read ${functionName} from the Circulo contract.`);
+  }
+  return scValToNative(simulation.result.retval);
+}
+
+async function findRecentContributionTransaction(
+  memberAddress: string,
+  contractAddress: string,
+  circleId: string,
+  tokenContractId: string,
+) {
+  const response = await fetch(
+    `${env.horizonUrl}/accounts/${memberAddress}/transactions?limit=100&order=desc`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) return null;
+
+  const payload = (await response.json()) as {
+    _embedded?: { records?: Array<{ hash: string; successful?: boolean; envelope_xdr: string }> };
+  };
+  const expectedCircle = uuidToU128(circleId);
+
+  for (const record of payload._embedded?.records ?? []) {
+    if (record.successful !== true) continue;
+    try {
+      const parsed = TransactionBuilder.fromXDR(
+        record.envelope_xdr,
+        env.sorobanNetworkPassphrase,
+      );
+      const transaction =
+        parsed instanceof FeeBumpTransaction ? parsed.innerTransaction : parsed;
+      for (const operation of transaction.operations) {
+        if (operation.type !== "invokeHostFunction") continue;
+        const invocation = operation.func.invokeContract();
+        if (
+          Address.fromScAddress(invocation.contractAddress()).toString() !== contractAddress ||
+          invocation.functionName().toString() !== "contribute"
+        ) {
+          continue;
+        }
+        const args = invocation.args();
+        if (
+          BigInt(scValToNative(args[0])) === expectedCircle &&
+          Address.fromScVal(args[1]).toString() === memberAddress &&
+          Address.fromScVal(args[2]).toString() === tokenContractId
+        ) {
+          return record.hash;
+        }
+      }
+    } catch {
+      // Ignore Horizon records that are not parseable Soroban transactions.
+    }
+  }
+  return null;
+}
+
+async function assertContributionIsAvailable(
+  userAddress: string,
+  contractAddress: string,
+  circleId: string,
+  tokenContractId: string,
+) {
+  const round = Number(
+    await readContractValue(
+      userAddress,
+      contractAddress,
+      "current_round",
+      circleIdToScVal(circleId),
+    ),
+  );
+  const alreadyPaid = Boolean(
+    await readContractValue(
+      userAddress,
+      contractAddress,
+      "is_paid",
+      circleIdToScVal(circleId),
+      nativeToScVal(round, { type: "u32" }),
+      Address.fromString(userAddress).toScVal(),
+    ),
+  );
+  if (alreadyPaid) {
+    const txHash = await findRecentContributionTransaction(
+      userAddress,
+      contractAddress,
+      circleId,
+      tokenContractId,
+    );
+    throw new ContributionAlreadyPaidError(round, txHash);
+  }
+}
+
+/**
+ * Calling a different deployment from the one that initialized a circle
+ * otherwise surfaces as Soroban's opaque `WasmVm/InvalidAction` trap.
+ */
+async function assertCircleInitializedOnContract(
+  sourceAddress: string,
+  contractAddress: string,
+  circleId: string
+) {
+  const sourceAccount = await rpcServer.getAccount(sourceAddress);
+  const operation = new Contract(contractAddress).call(
+    "is_initialized",
+    circleIdToScVal(circleId)
+  );
+  const transaction = new TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: env.sorobanNetworkPassphrase,
+  })
+    .addOperation(operation)
+    .setTimeout(30)
+    .build();
+  const simulation = await rpcServer.simulateTransaction(transaction);
+
+  if (!rpc.Api.isSimulationSuccess(simulation) || !simulation.result) {
+    throw new Error("Could not verify whether this circle exists on the configured contract.");
+  }
+  if (scValToNative(simulation.result.retval) !== true) {
+    throw new Error(
+      `This circle is not initialized on contract ${contractAddress}. ` +
+        "It was likely created before the contract was redeployed; switch to its original contract ID or remove only its dashboard record."
+    );
+  }
+}
+
 export async function triggerInitializeOnChain(
   creatorAddress: string,
   contractAddress: string,
@@ -70,20 +218,27 @@ export async function triggerInitializeOnChain(
   contributionAmount: number | string,
   collateralAmount: number | string,
   intervalSeconds: number | string,
+  cycleCount: number,
   members: string[]
 ): Promise<{ txXdr: string }> {
   assertAccountId(creatorAddress, "Creator address");
   assertContractId(contractAddress, "Circulo contract ID");
   members.forEach((m) => assertAccountId(m, "Member address"));
+  if (!Number.isInteger(cycleCount) || cycleCount < 1 || cycleCount > 12) {
+    throw new Error("Cycle count must be a whole number between 1 and 12.");
+  }
 
   const contract = new Contract(contractAddress);
   const operation = contract.call(
     "initialize",
     circleIdToScVal(circleId),
     Address.fromString(creatorAddress).toScVal(),
-    nativeToScVal(assertPositiveAmount(contributionAmount), { type: "i128" }),
-    nativeToScVal(assertPositiveAmount(collateralAmount), { type: "i128" }),
+    // The UI stores display amounts (for example `10` XLM). Soroban token
+    // transfers use integer base units, so send exactly 10_000_000 stroops.
+    nativeToScVal(stellarAmountToBaseUnits(contributionAmount), { type: "i128" }),
+    nativeToScVal(stellarAmountToBaseUnits(collateralAmount), { type: "i128" }),
     nativeToScVal(BigInt(intervalSeconds), { type: "u64" }),
+    nativeToScVal(cycleCount, { type: "u32" }),
     nativeToScVal(
       members.map((m) => Address.fromString(m).toScVal())
     )
@@ -105,6 +260,11 @@ export async function triggerActivateOnChain(
 ): Promise<{ txXdr: string }> {
   assertAccountId(creatorAddress, "Creator address");
   assertContractId(contractAddress, "Circulo contract ID");
+  await assertCircleInitializedOnContract(
+    creatorAddress,
+    contractAddress,
+    circleId
+  );
 
   const contract = new Contract(contractAddress);
   const operation = contract.call(
@@ -129,10 +289,15 @@ export async function triggerCancelCircleOnChain(
 ): Promise<{ txXdr: string }> {
   assertAccountId(creatorAddress, "Creator address");
   assertContractId(contractAddress, "Circulo contract ID");
+  await assertCircleInitializedOnContract(
+    creatorAddress,
+    contractAddress,
+    circleId
+  );
 
   const contract = new Contract(contractAddress);
   const operation = contract.call(
-    "cancel_circle",
+    "cancel_pool",
     circleIdToScVal(circleId),
     Address.fromString(creatorAddress).toScVal()
   );
@@ -179,7 +344,9 @@ export async function triggerContributeOnChain(
   tokenContractId: string
 ): Promise<{ txXdr: string }> {
   assertAccountId(userAddress, "Member address");
+  assertContractId(contractAddress, "Circulo contract ID");
   assertContractId(tokenContractId, "Token contract ID");
+  await assertContributionIsAvailable(userAddress, contractAddress, circleId, tokenContractId);
 
   const contract = new Contract(contractAddress);
   const operation = contract.call(

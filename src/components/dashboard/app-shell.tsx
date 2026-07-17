@@ -239,7 +239,7 @@ function NavigationGroup({
                     const isSubActive = matchesNavPath(pathname, subItem);
                     return (
                       <Button
-                        key={subItem.label}
+                        key={subItem.href}
                         render={<Link href={subItem.href} />}
                         nativeButton={false}
                         variant="ghost"

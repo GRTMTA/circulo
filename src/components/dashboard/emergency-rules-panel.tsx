@@ -22,6 +22,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { CircleStatus } from "@/lib/dashboard/types";
+import { toast } from "sonner";
 
 // ─── Rule definitions ────────────────────────────────────────────────────────
 
@@ -61,19 +62,19 @@ export const CANCEL_RULES = [
     id: "creator-cancel",
     title: "Creator-initiated cancellation",
     description:
-      "The creator can cancel the circle only if it is in draft or paused state. Active circles must be paused first.",
+      "The creator can cancel the circle only while it is draft or pending. Once active, dissolution requires unanimous member approval.",
   },
   {
     id: "majority-vote",
     title: "Majority vote cancellation",
     description:
-      "If more than 50% of members vote to cancel (during a pause), the circle is terminated. All collateral is returned.",
+      "Every member must vote YES before an active circle is dissolved. A single NO restores the active state.",
   },
   {
     id: "unresolved-dispute",
     title: "Unresolved dispute timeout",
     description:
-      "If a dispute remains unresolved for 14 days while paused, the circle is automatically cancelled and collateral returned.",
+      "A paused dashboard state does not bypass the on-chain dissolution vote. The contract remains the source of truth.",
   },
   {
     id: "collateral-return",
@@ -95,7 +96,7 @@ export function EmergencyRulesDisplay() {
             <CardTitle>Pause Rules</CardTitle>
           </div>
           <CardDescription>
-            A paused circle freezes all contributions and payouts. No funds move until the creator resumes or cancels.
+            A paused dashboard state freezes the UI. Active on-chain circles still require unanimous dissolution approval.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3">
@@ -168,7 +169,7 @@ export function EmergencyActionsPanel({
   const isActive = circleStatus === "active" || circleStatus === "delayed";
   const canPause = isActive;
   const canResume = isPaused;
-  const canCancel = isPaused || circleStatus === "draft";
+  const canCancel = circleStatus === "draft";
 
   async function handlePause() {
     if (!pauseReason.trim()) return;
@@ -197,6 +198,10 @@ export function EmergencyActionsPanel({
       await onCancel(cancelReason.trim());
       setCancelReason("");
       setConfirmCancel(false);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to cancel this circle."
+      );
     } finally {
       setLoading(null);
     }

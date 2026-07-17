@@ -342,6 +342,8 @@ const circleFixture: DashboardCircle = {
   status: "active",
   contributionAmount: 10,
   contributionAsset: "USDC",
+  cycleCount: 1,
+  timeZone: "Asia/Manila",
   intervalSeconds: 86_400,
   memberCount: 5,
   maxMemberCount: 10,

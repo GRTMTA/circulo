@@ -50,14 +50,6 @@ const EVENT_ICONS: Record<CalendarEventType, typeof CircleDollarSign> = {
   reminder_sent: Send,
 };
 
-function getEventDotColor(type: CalendarEventType, status?: string): string {
-  if (type === "contribution_paid" || type === "payout_paid" || type === "payout_ready") return "bg-green-500";
-  if (type === "contribution_late" || type === "contribution_missed" || type === "grace_end" || type === "collateral_slashed") return "bg-red-500";
-  if (type === "grace_start" || status === "warning") return "bg-amber-500";
-  if (type === "payout" || type === "contribution_due" || type === "round_start") return "bg-blue-500";
-  return "bg-gray-400";
-}
-
 function EventIcon({ type }: { type: CalendarEventType }) {
   const Icon = EVENT_ICONS[type] ?? CircleDollarSign;
   const color =
@@ -72,11 +64,13 @@ function MonthGrid({
   month,
   events,
   currentMemberId,
+  timeZone,
 }: {
   month: Date;
   events: CalendarEvent[];
   members: DashboardMember[];
   currentMemberId?: string;
+  timeZone: string;
 }) {
   const today = new Date();
   const year = month.getFullYear();
@@ -119,17 +113,21 @@ function MonthGrid({
           return <div key={`empty-${i}`} className="min-h-24 bg-[var(--color-background-default)] p-1 opacity-30" />;
         }
 
-        const date = new Date(year, monthIdx, day);
-        const dayEvents = createDayEvents(date, events);
-        const todayHighlight = isToday(day);
-        const displayDots = dayEvents.slice(0, 3);
+        const isCurrentMonth = i >= firstDay;
+        const cellMonth = isCurrentMonth ? monthIdx : monthIdx - 1;
+        const date = new Date(Date.UTC(year, cellMonth, day, 12));
+        const dayEvents = createDayEvents(date, events, timeZone);
+        const todayHighlight = isCurrentMonth && isToday(day);
         const overflow = dayEvents.length > 3 ? dayEvents.length - 3 : 0;
 
         return (
-          <Popover key={day}>
+          <Popover key={isCurrentMonth ? `curr-${day}` : `prev-${day}-${i}`}>
             <PopoverTrigger
               nativeButton
-              className="block min-h-24 w-full cursor-pointer bg-[var(--color-background-default)] p-1 text-left transition-colors hover:bg-[var(--color-background-muted)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-[var(--color-primary-muted)]"
+              className={cn(
+                "block min-h-24 w-full cursor-pointer bg-[var(--color-background-default)] p-1 text-left transition-colors hover:bg-[var(--color-background-muted)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-[var(--color-primary-muted)]",
+                !isCurrentMonth && "opacity-50 bg-[var(--color-background-muted)]/40"
+              )}
             >
               <span
                 className={cn(
@@ -139,22 +137,72 @@ function MonthGrid({
               >
                 {day}
               </span>
-              <div className="mt-1 space-y-1">
-                {displayDots.map((event) => (
-                  <div key={event.id} className="flex items-center gap-1.5">
-                    <span className={cn("size-1.5 shrink-0 rounded-full", getEventDotColor(event.type, event.status))} />
-                    <span className="truncate text-[11px] leading-tight text-muted-foreground">
-                      {event.memberName ?? event.title}
-                    </span>
-                  </div>
-                ))}
+              <div className="mt-1.5 space-y-1 overflow-hidden">
+                {dayEvents.slice(0, 3).map((event) => {
+                  const isPayout = event.type.includes("payout");
+                  const isPaid = event.status === "paid" || event.type === "contribution_paid" || event.type === "payout_paid";
+                  const isLate = event.status === "late" || event.status === "overdue" || event.status === "grace_period" || event.status === "grace" || event.type === "contribution_late";
+                  const isMissed = event.status === "missed" || event.type === "contribution_missed";
+                  const isSelf = event.isCurrentUser;
+                  
+                  let bgClass = "bg-blue-50 text-blue-800 border-blue-100";
+                  let prefix = "💸";
+                  let displayLabel = "";
+
+                  if (isPayout) {
+                    prefix = "🎁";
+                    bgClass = isSelf 
+                      ? "bg-indigo-50 text-indigo-800 border-indigo-200 font-semibold ring-1 ring-indigo-300"
+                      : "bg-purple-50 text-purple-800 border-purple-100";
+                    
+                    const name = isSelf ? "Your payout" : `${event.memberName ?? "Recipient"}`;
+                    let statusStr = "";
+                    if (event.status === "paid") statusStr = " [Paid]";
+                    else if (event.status === "processing") statusStr = " [Processing]";
+                    else if (event.status === "failed") statusStr = " [Failed]";
+                    displayLabel = `${name}${statusStr}: ${event.amount} ${event.asset ?? ""}`;
+                  } else {
+                    const name = isSelf ? "You" : (event.memberName ?? "Member");
+                    let statusText = "Pending";
+                    if (isPaid) {
+                      statusText = "Paid";
+                      bgClass = "bg-emerald-50 text-emerald-800 border-emerald-100";
+                      prefix = "✅";
+                    } else if (isLate) {
+                      statusText = "Late";
+                      bgClass = "bg-rose-50 text-rose-800 border-rose-100 animate-pulse";
+                      prefix = "⚠️";
+                    } else if (isMissed) {
+                      statusText = "Missed";
+                      bgClass = "bg-red-50 text-red-800 border-red-100";
+                      prefix = "❌";
+                    } else {
+                      bgClass = "bg-amber-50 text-amber-800 border-amber-100";
+                      prefix = "⏳";
+                    }
+                    displayLabel = `${name} (${statusText}): ${event.amount} ${event.asset ?? ""}`;
+                  }
+
+                  return (
+                    <div 
+                      key={event.id} 
+                      className={cn(
+                        "flex items-center gap-1 rounded border px-1 py-0.5 text-[9px] leading-tight truncate max-w-full",
+                        bgClass
+                      )}
+                    >
+                      <span className="shrink-0">{prefix}</span>
+                      <span className="truncate font-medium">{displayLabel}</span>
+                    </div>
+                  );
+                })}
                 {overflow > 0 ? (
-                  <p className="text-[11px] leading-tight text-muted-foreground">+{overflow} more</p>
+                  <p className="text-[10px] pl-1 font-semibold text-muted-foreground">+{overflow} more</p>
                 ) : null}
               </div>
             </PopoverTrigger>
             <PopoverContent align="start" sideOffset={4} className="w-72 p-0">
-              <DayPopoverContent date={date} events={dayEvents} currentMemberId={currentMemberId} />
+              <DayPopoverContent date={date} events={dayEvents} currentMemberId={currentMemberId} timeZone={timeZone} />
             </PopoverContent>
           </Popover>
         );
@@ -167,15 +215,17 @@ function DayPopoverContent({
   date,
   events,
   currentMemberId,
+  timeZone,
 }: {
   date: Date;
   events: CalendarEvent[];
   currentMemberId?: string;
+  timeZone: string;
 }) {
   if (events.length === 0) {
     return (
       <div className="p-4 text-center text-sm text-muted-foreground">
-        No events for {date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+        No events for {date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone })}
       </div>
     );
   }
@@ -184,7 +234,7 @@ function DayPopoverContent({
     <div>
       <div className="border-b border-border px-4 py-3">
         <p className="font-semibold">
-          {date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+          {date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone })}
         </p>
       </div>
       <div className="max-h-72 overflow-y-auto">
@@ -241,11 +291,13 @@ function WeekView({
   month,
   events,
   currentMemberId,
+  timeZone,
 }: {
   month: Date;
   events: CalendarEvent[];
   members: DashboardMember[];
   currentMemberId?: string;
+  timeZone: string;
 }) {
   const startOfWeek = new Date(month);
   startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
@@ -266,7 +318,7 @@ function WeekView({
         </div>
       ))}
       {days.map((day) => {
-        const dayEvents = createDayEvents(day, events);
+        const dayEvents = createDayEvents(day, events, timeZone);
         const isToday =
           day.getDate() === today.getDate() &&
           day.getMonth() === today.getMonth() &&
@@ -292,9 +344,10 @@ function WeekView({
                     key={event.id}
                     className={cn(
                       "flex items-center gap-1.5 truncate rounded-md px-1.5 py-0.5 text-[11px]",
-                      event.type.includes("paid") && "bg-green-50 text-green-800",
-                      event.type.includes("late") || event.type.includes("missed") ? "bg-red-50 text-red-800" :
-                      "bg-blue-50 text-blue-800",
+                      (event.status === "paid" || event.type.includes("paid")) && "bg-emerald-50 text-emerald-800",
+                      (event.status === "late" || event.status === "missed" || event.type.includes("late") || event.type.includes("missed")) && "bg-rose-50 text-rose-800",
+                      (event.status === "processing" || event.status === "verifying") && "bg-indigo-50 text-indigo-800",
+                      (!event.status || event.status === "pending" || event.status === "scheduled" || event.status === "ready") && "bg-amber-50 text-amber-800",
                     )}
                   >
                     <EventIcon type={event.type} />
@@ -307,7 +360,7 @@ function WeekView({
               </div>
             </PopoverTrigger>
             <PopoverContent align="start" sideOffset={4} className="w-72 p-0">
-              <DayPopoverContent date={day} events={dayEvents} currentMemberId={currentMemberId} />
+              <DayPopoverContent date={day} events={dayEvents} currentMemberId={currentMemberId} timeZone={timeZone} />
             </PopoverContent>
           </Popover>
         );
@@ -319,10 +372,12 @@ function WeekView({
 function AgendaView({
   events,
   currentMemberId,
+  timeZone,
 }: {
   events: CalendarEvent[];
   members: DashboardMember[];
   currentMemberId?: string;
+  timeZone: string;
 }) {
   const grouped = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -331,12 +386,13 @@ function AgendaView({
         weekday: "long",
         month: "long",
         day: "numeric",
+        timeZone,
       });
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(event);
     });
     return map;
-  }, [events]);
+  }, [events, timeZone]);
 
   if (events.length === 0) {
     return (
@@ -386,6 +442,7 @@ function AgendaView({
                     {new Date(event.date).toLocaleTimeString("en-US", {
                       hour: "numeric",
                       minute: "2-digit",
+                      timeZone,
                     })}
                   </p>
                   {event.actionLabel ? (
@@ -442,6 +499,7 @@ interface CycleCalendarViewProps {
   members: DashboardMember[];
   currentMemberId?: string;
   asset?: string;
+  timeZone?: string;
   defaultView?: CalendarView;
   onPayNow?: (memberId: string) => void;
   onSendReminder?: (memberId: string) => void;
@@ -454,6 +512,7 @@ export function CycleCalendarView({
   members,
   currentMemberId,
   asset = "USDC",
+  timeZone = "Asia/Manila",
   defaultView = "month",
 }: CycleCalendarViewProps) {
   const now = new Date();
@@ -512,7 +571,7 @@ export function CycleCalendarView({
               <ChevronLeft className="size-4" />
             </Button>
             <p className="min-w-36 text-center font-semibold">
-              {month.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })}
+              {month.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone })}
             </p>
             <Button type="button" variant="outline" size="icon-sm" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>
               <ChevronRight className="size-4" />
@@ -576,6 +635,7 @@ export function CycleCalendarView({
             events={filteredEvents}
             members={members}
             currentMemberId={currentMemberId}
+            timeZone={timeZone}
           />
         ) : view === "week" ? (
           <WeekView
@@ -583,9 +643,10 @@ export function CycleCalendarView({
             events={filteredEvents}
             members={members}
             currentMemberId={currentMemberId}
+            timeZone={timeZone}
           />
         ) : (
-          <AgendaView events={filteredEvents} members={members} currentMemberId={currentMemberId} />
+          <AgendaView events={filteredEvents} members={members} currentMemberId={currentMemberId} timeZone={timeZone} />
         )}
 
         {activeRound ? (

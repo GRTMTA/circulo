@@ -30,7 +30,9 @@ export default async function CalendarPage({
         payouts={data.payouts}
         contributions={data.contributions}
         members={data.members}
+        currentMemberId={data.role === "member" ? data.currentMember.id : undefined}
         asset={data.circle.contributionAsset}
+        timeZone={data.circle.timeZone}
       />
       <div className="mt-6">
         <CycleTimelineView

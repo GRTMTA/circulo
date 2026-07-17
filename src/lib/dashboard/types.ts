@@ -20,6 +20,8 @@ export interface DashboardCircle {
   status: CircleStatus;
   contributionAmount: number;
   contributionAsset: string;
+  cycleCount: number;
+  timeZone: string;
   intervalSeconds: number;
   memberCount: number;
   maxMemberCount: number;
@@ -104,8 +106,11 @@ export interface DashboardPayout {
   payoutAmount: number;
   expectedPayoutAt: string | null;
   withheldAmount: number;
-  status: "scheduled" | "ready" | "paid" | "delayed" | "disputed";
+  status: "scheduled" | "ready" | "processing" | "paid" | "delayed" | "failed" | "disputed";
   txHash: string | null;
+  attemptCount?: number;
+  lastError?: string | null;
+  processedAt?: string | null;
 }
 
 export interface DashboardAuditEvent {
@@ -115,6 +120,13 @@ export interface DashboardAuditEvent {
   roundNumber: number | null;
   txHash: string | null;
   createdAt: string;
+  metadata?: Record<string, unknown>;
+  amount?: number;
+  asset?: string;
+  dueAt?: string | null;
+  paidAt?: string | null;
+  expectedPayoutAt?: string | null;
+  status?: string;
 }
 
 export interface DashboardNotification {
@@ -144,7 +156,9 @@ export const auditEventTypes = [
   "contribution_paid",
   "contribution_verified",
   "payout_initiated",
+  "payout_processing",
   "payout_released",
+  "payout_failed",
   "reminder_sent",
   "grace_period_started",
   "grace_period_ended",
@@ -153,6 +167,8 @@ export const auditEventTypes = [
   "round_started",
   "round_completed",
   "settings_changed",
+  "delete_proposed",
+  "delete_voted",
   "payout_order_changed",
 ] as const;
 

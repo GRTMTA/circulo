@@ -31,6 +31,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { DashboardAuditEvent, DashboardMember } from "@/lib/dashboard/types";
+import { ExplorerLink } from "@/components/stellar/explorer-link";
 
 // ─── Event metadata ──────────────────────────────────────────────────────────
 
@@ -230,7 +231,7 @@ const EVENT_META: Record<string, EventMeta> = {
 const DEFAULT_META: EventMeta = {
   icon: CircleDot,
   label: "Event",
-  description: (_, __, ___) => "Activity recorded",
+  description: () => "Activity recorded",
   color: "text-muted-foreground",
   category: "circle",
 };
@@ -252,7 +253,7 @@ function getMemberName(members: DashboardMember[], memberId: string | null): str
   return member?.displayName ?? null;
 }
 
-function formatTimestamp(dateStr: string): string {
+function formatTimestamp(dateStr: string, timeZone = "Asia/Manila"): string {
   const date = new Date(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -270,12 +271,8 @@ function formatTimestamp(dateStr: string): string {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone,
   }).format(date);
-}
-
-function shortenHash(hash: string): string {
-  if (hash.length <= 12) return hash;
-  return `${hash.slice(0, 6)}...${hash.slice(-4)}`;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -284,10 +281,12 @@ export function AuditLog({
   events,
   members,
   maxVisible = 50,
+  timeZone = "Asia/Manila",
 }: {
   events: DashboardAuditEvent[];
   members: DashboardMember[];
   maxVisible?: number;
+  timeZone?: string;
 }) {
   const [filter, setFilter] = useState<string>("all");
   const [showAll, setShowAll] = useState(false);
@@ -370,13 +369,14 @@ export function AuditLog({
                       {meta.description(memberName, event.roundNumber, event.txHash)}
                     </p>
                     {event.txHash ? (
-                      <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-                        tx: {shortenHash(event.txHash)}
+                      <p className="mt-0.5 font-mono text-xs text-muted-foreground flex items-center gap-1">
+                        <span>tx:</span>
+                        <ExplorerLink value={event.txHash} kind="tx" className="text-xs" />
                       </p>
                     ) : null}
                   </div>
                   <span className="shrink-0 text-xs text-muted-foreground">
-                    {formatTimestamp(event.createdAt)}
+                    {formatTimestamp(event.createdAt, timeZone)}
                   </span>
                 </div>
               </div>

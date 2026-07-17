@@ -1,7 +1,3 @@
-"use client";
-
-import { useState } from "react";
-
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InfoTip } from "@/components/ui/info-tip";
 import { Input } from "@/components/ui/input";
@@ -13,9 +9,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { CreateBasicsState } from "@/lib/create/types";
-import { formatIntervalSeconds, toIntervalSeconds, type IntervalUnit } from "@/lib/create/interval";
+import { formatIntervalSeconds } from "@/lib/create/interval";
+import { CIRCLE_TIME_ZONES } from "@/lib/time-zone";
+import { MAX_CYCLE_COUNT } from "@/lib/create/validation";
 
-const PRESET_INTERVALS = [86400, 604800, 2592000];
+const SECONDS_PER_DAY = 86_400;
 
 export function CreateBasicsStep({
   values,
@@ -26,40 +24,21 @@ export function CreateBasicsStep({
   onChange: (values: CreateBasicsState) => void;
   errors?: Record<string, string>;
 }) {
-  const isPreset = PRESET_INTERVALS.includes(values.intervalSeconds);
-  const [isCustom, setIsCustom] = useState(!isPreset && values.intervalSeconds > 0);
-  const [customValue, setCustomValue] = useState(() =>
-    isPreset ? "7" : String(Math.max(1, Math.round(values.intervalSeconds / 86400)))
-  );
-  const [customUnit, setCustomUnit] = useState<IntervalUnit>("days");
-
-  const intervalSelectValue = isCustom ? "custom" : String(values.intervalSeconds);
-
-  function handleIntervalSelect(value: string | null) {
-    if (!value) return;
-    if (value === "custom") {
-      setIsCustom(true);
-      onChange({ ...values, intervalSeconds: toIntervalSeconds(Number(customValue) || 0, customUnit) });
-      return;
-    }
-    setIsCustom(false);
-    onChange({ ...values, intervalSeconds: Number(value) });
-  }
-
-  function handleCustomValue(rawValue: string) {
-    setCustomValue(rawValue);
-    onChange({ ...values, intervalSeconds: toIntervalSeconds(Number(rawValue) || 0, customUnit) });
-  }
-
-  function handleCustomUnit(unit: IntervalUnit) {
-    setCustomUnit(unit);
-    onChange({ ...values, intervalSeconds: toIntervalSeconds(Number(customValue) || 0, unit) });
+  function handleIntervalDays(rawValue: string) {
+    const digitsOnly = rawValue.replace(/[^\d]/g, "").replace(/^0+/, "");
+    const days = digitsOnly === "" ? 0 : Number(digitsOnly);
+    onChange({ ...values, intervalSeconds: days * SECONDS_PER_DAY });
   }
 
   function handleMemberCount(rawValue: string) {
     // Never allow a leading zero or empty-to-zero; keep the field usable while typing.
     const digitsOnly = rawValue.replace(/[^\d]/g, "").replace(/^0+/, "");
     onChange({ ...values, memberCount: digitsOnly === "" ? 0 : Number(digitsOnly) });
+  }
+
+  function handleCycleCount(rawValue: string) {
+    const digitsOnly = rawValue.replace(/[^\d]/g, "").replace(/^0+/, "");
+    onChange({ ...values, cycleCount: digitsOnly === "" ? 0 : Number(digitsOnly) });
   }
 
   return (
@@ -85,12 +64,16 @@ export function CreateBasicsStep({
             id="contribution-amount"
             type="number"
             min={1}
+            step="0.0000001"
             value={values.contributionAmount}
             onChange={(event) =>
               onChange({ ...values, contributionAmount: Number(event.target.value) })
             }
             aria-invalid={!!errors.contributionAmount}
           />
+          <FieldDescription>
+            Exactly this amount is charged each round (up to 7 decimal places).
+          </FieldDescription>
           {errors.contributionAmount ? (
             <FieldError>{errors.contributionAmount}</FieldError>
           ) : null}
@@ -115,51 +98,81 @@ export function CreateBasicsStep({
           </Select>
         </Field>
       </div>
-      <div className="grid gap-5 md:grid-cols-2">
+      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
         <Field>
           <div className="flex items-center gap-1.5">
-            <FieldLabel required>Interval</FieldLabel>
-            <InfoTip>How often members contribute. Shorter intervals mean faster payouts for everyone.</InfoTip>
+            <FieldLabel htmlFor="contribution-interval-days" required>Contribution Interval</FieldLabel>
+            <InfoTip>How many calendar days pass between each contribution deadline.</InfoTip>
           </div>
-          <Select value={intervalSelectValue} onValueChange={handleIntervalSelect}>
-            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="86400">Every 24 hours</SelectItem>
-              <SelectItem value="604800">Every 7 days</SelectItem>
-              <SelectItem value="2592000">Every 30 days</SelectItem>
-              <SelectItem value="custom">Custom interval…</SelectItem>
-            </SelectContent>
-          </Select>
-          {isCustom ? (
-            <div className="grid grid-cols-[1fr_auto] gap-2">
-              <Input
-                type="number"
-                min={1}
-                value={customValue}
-                onChange={(event) => handleCustomValue(event.target.value)}
-                aria-label="Custom interval value"
-                aria-invalid={!!errors.intervalSeconds}
-              />
-              <Select value={customUnit} onValueChange={(value) => handleCustomUnit(value as IntervalUnit)}>
-                <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="hours">Hours</SelectItem>
-                  <SelectItem value="days">Days</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
+          <div className="flex items-center gap-2">
+            <Input
+              id="contribution-interval-days"
+              type="text"
+              inputMode="numeric"
+              value={
+                values.intervalSeconds > 0
+                  ? String(values.intervalSeconds / SECONDS_PER_DAY)
+                  : ""
+              }
+              onChange={(event) => handleIntervalDays(event.target.value)}
+              aria-invalid={!!errors.intervalSeconds}
+            />
+            <span className="shrink-0 text-sm text-muted-foreground">days</span>
+          </div>
           <FieldDescription>
             {values.intervalSeconds > 0
               ? `Members contribute every ${formatIntervalSeconds(values.intervalSeconds)}.`
-              : "Choose how often members contribute."}
+              : "Enter how many days are between contributions."}
           </FieldDescription>
           {errors.intervalSeconds ? <FieldError>{errors.intervalSeconds}</FieldError> : null}
         </Field>
         <Field>
           <div className="flex items-center gap-1.5">
+            <FieldLabel htmlFor="circle-time-zone" required>Circle Timezone</FieldLabel>
+            <InfoTip>All deadlines and reminders use this shared timezone, regardless of each member&apos;s location.</InfoTip>
+          </div>
+          <Input
+            id="circle-time-zone"
+            list="circle-time-zone-options"
+            value={values.timeZone}
+            onChange={(event) => onChange({ ...values, timeZone: event.target.value })}
+            placeholder="Asia/Manila"
+            autoComplete="off"
+            aria-invalid={!!errors.timeZone}
+          />
+          <datalist id="circle-time-zone-options">
+            {CIRCLE_TIME_ZONES.map((timeZone) => (
+              <option key={timeZone} value={timeZone} />
+            ))}
+          </datalist>
+          <FieldDescription>Default: Asia/Manila (Philippines).</FieldDescription>
+          {errors.timeZone ? <FieldError>{errors.timeZone}</FieldError> : null}
+        </Field>
+        <Field>
+          <div className="flex items-center gap-1.5">
+            <FieldLabel htmlFor="cycle-count" required>Number of Cycles</FieldLabel>
+            <InfoTip>A cycle is one complete payout rotation. Every member receives one payout in each cycle.</InfoTip>
+          </div>
+          <Input
+            id="cycle-count"
+            type="text"
+            inputMode="numeric"
+            value={values.cycleCount === 0 ? "" : String(values.cycleCount)}
+            onChange={(event) => handleCycleCount(event.target.value)}
+            placeholder="e.g. 3"
+            aria-invalid={!!errors.cycleCount}
+          />
+          <FieldDescription>
+            {values.memberCount > 0 && values.cycleCount > 0
+              ? `${values.memberCount * values.cycleCount} total payout rounds.`
+              : `Choose 1–${MAX_CYCLE_COUNT} complete rotations.`}
+          </FieldDescription>
+          {errors.cycleCount ? <FieldError>{errors.cycleCount}</FieldError> : null}
+        </Field>
+        <Field>
+          <div className="flex items-center gap-1.5">
             <FieldLabel htmlFor="member-count" required>Member Count</FieldLabel>
-            <InfoTip>Total members including yourself. Each member receives one payout — more members means more rounds.</InfoTip>
+            <InfoTip>Total members including yourself. Each member receives one payout during every cycle.</InfoTip>
           </div>
           <Input
             id="member-count"

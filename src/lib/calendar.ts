@@ -110,6 +110,7 @@ export function createCalendarEvents(
       amount: payout.payoutAmount,
       asset,
       status: payout.status,
+      isCurrentUser: payout.recipientMemberId === currentMemberId,
       actionType: payout.status === "ready" ? "view" : undefined,
       actionLabel: payout.status === "ready" ? "View payout" : undefined,
     });
@@ -119,23 +120,21 @@ export function createCalendarEvents(
     const member = memberMap.get(contribution.memberId);
     const round = roundMap.get(contribution.roundId);
     const isCurrentUser = contribution.memberId === currentMemberId;
-    const type: CalendarEventType =
-      contribution.status === "paid"
-        ? "contribution_paid"
-        : contribution.status === "late"
-          ? "contribution_late"
-          : contribution.status === "missed"
-            ? "contribution_missed"
-            : "contribution_due";
+    const pendingType: CalendarEventType =
+      contribution.status === "late"
+        ? "contribution_late"
+        : contribution.status === "missed"
+          ? "contribution_missed"
+          : "contribution_due";
 
+    // Keep the scheduled due event anchored to the original due date even
+    // after payment. A separate event records when the wallet payment was
+    // actually verified, so the calendar communicates both facts.
     events.push({
-      id: `contribution-${contribution.id}`,
-      date: contribution.paidAt ?? round?.dueAt ?? new Date().toISOString(),
-      type,
-      title:
-        contribution.status === "paid"
-          ? `${member?.displayName ?? "Member"} paid`
-          : `${member?.displayName ?? "Member"} contribution ${contribution.status.replaceAll("_", " ")}`,
+      id: `contribution-due-${contribution.id}`,
+      date: round?.dueAt ?? contribution.paidAt ?? new Date().toISOString(),
+      type: pendingType,
+      title: `${member?.displayName ?? "Member"} contribution due`,
       description: `${contribution.amountDue} ${asset}`,
       memberId: contribution.memberId,
       memberName: member?.displayName,
@@ -143,11 +142,29 @@ export function createCalendarEvents(
       roundNumber: round?.roundNumber,
       amount: contribution.amountDue,
       asset,
-      status: contribution.status,
+      status: contribution.status === "paid" ? "paid" : contribution.status,
       isCurrentUser,
       actionLabel: isCurrentUser && contribution.status !== "paid" ? "Pay now" : undefined,
       actionType: isCurrentUser && contribution.status !== "paid" ? "pay" : undefined,
     });
+
+    if (contribution.status === "paid" && contribution.paidAt) {
+      events.push({
+        id: `contribution-paid-${contribution.id}`,
+        date: contribution.paidAt,
+        type: "contribution_paid",
+        title: `${member?.displayName ?? "Member"} paid`,
+        description: `${contribution.amountDue} ${asset} · payment verified`,
+        memberId: contribution.memberId,
+        memberName: member?.displayName,
+        memberAvatarUrl: member?.avatarUrl,
+        roundNumber: round?.roundNumber,
+        amount: contribution.amountDue,
+        asset,
+        status: "paid",
+        isCurrentUser,
+      });
+    }
   }
 
   return events.sort(
@@ -155,11 +172,22 @@ export function createCalendarEvents(
   );
 }
 
-export function createDayEvents(date: Date, events: CalendarEvent[]): CalendarEvent[] {
-  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const dayEnd = dayStart + 86_400_000;
+function dateKey(date: Date, timeZone: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+export function createDayEvents(
+  date: Date,
+  events: CalendarEvent[],
+  timeZone = "Asia/Manila",
+): CalendarEvent[] {
+  const targetKey = dateKey(date, timeZone);
   return events.filter((event) => {
-    const eventTime = new Date(event.date).getTime();
-    return eventTime >= dayStart && eventTime < dayEnd;
+    return dateKey(new Date(event.date), timeZone) === targetKey;
   });
 }

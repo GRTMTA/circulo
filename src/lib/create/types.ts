@@ -4,6 +4,8 @@ export interface CreateBasicsState {
   name: string;
   contributionAmount: number;
   contributionAsset: "USDC" | "USDT" | "XLM";
+  cycleCount: number;
+  timeZone: string;
   intervalSeconds: number;
   memberCount: number;
   payoutOrderMode: PayoutOrderMode;

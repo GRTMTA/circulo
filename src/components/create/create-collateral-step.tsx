@@ -11,6 +11,7 @@ export function CreateCollateralStep({
   values,
   onChange,
   memberCount,
+  cycleCount,
   contributionAmount,
   contributionAsset,
   fieldErrors = {},
@@ -18,6 +19,7 @@ export function CreateCollateralStep({
   values: CreateCollateralState;
   onChange: (values: CreateCollateralState) => void;
   memberCount: number;
+  cycleCount: number;
   contributionAmount: number;
   contributionAsset: string;
   fieldErrors?: Record<string, string>;
@@ -26,10 +28,13 @@ export function CreateCollateralStep({
   const A = contributionAmount;
   const asset = contributionAsset;
 
-  // Generate dynamic collateral requirements per round: (N - k) * A
+  const totalRounds = N * cycleCount;
+
+  // Collateral covers every contribution owed after the member's first payout:
+  // ((N * C) - k) * A.
   const collateralRows = Array.from({ length: N }, (_, i) => {
     const k = i + 1;
-    const remaining = N - k;
+    const remaining = totalRounds - k;
     const required = remaining * A;
     return { k, remaining, required };
   });
@@ -53,7 +58,7 @@ export function CreateCollateralStep({
           Required Collateral per Payout Slot
         </h3>
         <p className="text-xs text-muted-foreground mb-4">
-          Calculated using the formula: <code className="font-mono text-indigo-500 bg-indigo-500/5 px-1.5 py-0.5 rounded border border-indigo-500/10">Required Collateral = (Total Members - Payout Round) × Contribution Amount</code>
+          Calculated using the formula: <code className="font-mono text-indigo-500 bg-indigo-500/5 px-1.5 py-0.5 rounded border border-indigo-500/10">Required Collateral = ((Members × Cycles) - First Payout Slot) × Contribution</code>
         </p>
 
         <div className="overflow-hidden rounded-xl border border-[var(--color-border-muted)] bg-[var(--color-background-default)]">
@@ -69,7 +74,7 @@ export function CreateCollateralStep({
               {collateralRows.map(({ k, remaining, required }) => (
                 <tr key={k} className="hover:bg-[var(--color-background-muted)]/20 transition-colors">
                   <td className="p-3 font-medium">Round {k} {k === N ? "(Last Slot)" : ""}</td>
-                  <td className="p-3 text-muted-foreground">{remaining} rounds after payout</td>
+                  <td className="p-3 text-muted-foreground">{remaining} obligations after first payout</td>
                   <td className="p-3 text-right font-mono font-semibold text-[var(--color-text-default)]">
                     {required.toLocaleString()} {asset}
                   </td>
