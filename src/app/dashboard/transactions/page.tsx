@@ -16,20 +16,23 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { StellarWalletsKit, KitEventType, HORIZON_RPC_URL } from "@/config/stellar";
+import { StellarWalletsKit, KitEventType } from "@/config/stellar";
 import type { KitEventStateUpdated } from "@creit.tech/stellar-wallets-kit";
 import { toast } from "sonner";
 
 interface StellarPayment {
   id: string;
+  direction: "in" | "out" | "escrow";
   type: string;
-  from: string;
-  to: string;
-  asset_type: string;
-  asset_code?: string;
-  amount: string;
-  transaction_hash: string;
-  created_at: string;
+  from: string | null;
+  to: string | null;
+  counterparty: string | null;
+  asset: string;
+  amount: number;
+  transactionHash: string;
+  createdAt: string;
+  circleName: string;
+  roundNumber: number | null;
 }
 
 export default function TransactionsPage() {
@@ -63,21 +66,15 @@ export default function TransactionsPage() {
   async function fetchPayments(walletAddress: string) {
     setLoading(true);
     try {
-      const res = await fetch(`${HORIZON_RPC_URL}/accounts/${walletAddress}/payments?limit=40&order=desc`, {
+      const res = await fetch(`/api/wallet/transactions?address=${encodeURIComponent(walletAddress)}`, {
         cache: "no-store",
       });
-      if (!res.ok) throw new Error("Failed to fetch on-chain transaction history");
-      const data = await res.json();
-      const records = data._embedded?.records || [];
-      
-      const paymentRecords = records.filter((r: any) => 
-        ["payment", "create_account", "path_payment_strict_receive", "path_payment_strict_send"].includes(r.type)
-      );
-      
-      setPayments(paymentRecords);
+      if (!res.ok) throw new Error("Failed to fetch wallet transaction history");
+      const data = (await res.json()) as { transactions?: StellarPayment[] };
+      setPayments(data.transactions ?? []);
     } catch (err) {
       console.error(err);
-      toast.error("Failed to load on-chain transaction history");
+      toast.error("Failed to load wallet transaction history");
     } finally {
       setLoading(false);
     }
@@ -85,7 +82,7 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     if (address) {
-      void fetchPayments(address);
+      void Promise.resolve().then(() => fetchPayments(address));
     }
   }, [address]);
 
@@ -98,10 +95,8 @@ export default function TransactionsPage() {
     }
   };
 
-  const getAssetLabel = (item: StellarPayment) => {
-    if (item.asset_type === "native") return "XLM";
-    return item.asset_code || "Unknown Token";
-  };
+  const getAssetLabel = (item: StellarPayment) => item.asset;
+
 
   const formatAddress = (addr?: string) => {
     if (!addr) return "Unknown";
@@ -109,8 +104,8 @@ export default function TransactionsPage() {
   };
 
   const filteredPayments = payments.filter((payment) => {
-    const isOutflow = payment.from?.toUpperCase() === address?.toUpperCase();
-    const isInflow = payment.to?.toUpperCase() === address?.toUpperCase();
+    const isOutflow = payment.direction === "out";
+    const isInflow = payment.direction === "in";
     
     if (filterType === "in" && !isInflow) return false;
     if (filterType === "out" && !isOutflow) return false;
@@ -120,7 +115,7 @@ export default function TransactionsPage() {
 
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      const hashMatch = payment.transaction_hash?.toLowerCase().includes(query);
+      const hashMatch = payment.transactionHash?.toLowerCase().includes(query);
       const fromMatch = payment.from?.toLowerCase().includes(query);
       const toMatch = payment.to?.toLowerCase().includes(query);
       return hashMatch || fromMatch || toMatch;
@@ -187,7 +182,7 @@ export default function TransactionsPage() {
               </div>
               
               <div className="flex flex-wrap items-center gap-3">
-                <Select value={filterType} onValueChange={(val) => setFilterType((val || "all") as any)}>
+                <Select value={filterType} onValueChange={(val) => setFilterType(val === "in" || val === "out" ? val : "all")}>
                   <SelectTrigger className="w-[140px] bg-[var(--color-background-default)]/60 border-[var(--color-border-muted)]">
                     <SelectValue placeholder="Direction" />
                   </SelectTrigger>
@@ -225,16 +220,16 @@ export default function TransactionsPage() {
                   <Coins className="size-10 text-muted-foreground/60 mx-auto mb-3" />
                   <p className="text-base font-semibold">No Transactions Found</p>
                   <p className="text-muted-foreground text-sm max-w-xs mx-auto mt-1">
-                    No transactions match your selected search or filters, or this account hasn't made any testnet operations yet.
+                    No transactions match your selected search or filters, or this account has not made any testnet operations yet.
                   </p>
                 </div>
               ) : (
                 <div className="divide-y divide-[var(--color-border-muted)]">
                   {filteredPayments.map((payment) => {
-                    const isOutflow = payment.from?.toUpperCase() === address.toUpperCase();
-                    const amountVal = Number(payment.amount || "0");
+                    const isOutflow = payment.direction === "out";
+                    const amountVal = payment.amount;
                     const assetLabel = getAssetLabel(payment);
-                    const formattedDate = new Date(payment.created_at).toLocaleString();
+                    const formattedDate = new Date(payment.createdAt).toLocaleString();
 
                     return (
                       <div 
@@ -255,10 +250,13 @@ export default function TransactionsPage() {
                               {payment.type.replace(/_/g, " ")}
                             </p>
                             <p className="text-xs text-muted-foreground mt-0.5">
+                              {payment.circleName}{payment.roundNumber ? ` • Round ${payment.roundNumber}` : ""}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
                               {isOutflow ? (
-                                <>To: <span className="font-mono font-medium text-slate-400">{formatAddress(payment.to)}</span></>
+                                <>To: <span className="font-mono font-medium text-slate-400">{formatAddress(payment.to ?? undefined)}</span></>
                               ) : (
-                                <>From: <span className="font-mono font-medium text-slate-400">{formatAddress(payment.from)}</span></>
+                                <>From: <span className="font-mono font-medium text-slate-400">{formatAddress(payment.from ?? undefined)}</span></>
                               )}
                               <span className="mx-1.5">•</span>
                               <span>{formattedDate}</span>
@@ -279,7 +277,7 @@ export default function TransactionsPage() {
                           </div>
 
                           <a
-                            href={`https://stellar.expert/explorer/testnet/tx/${payment.transaction_hash}`}
+                            href={`https://stellar.expert/explorer/testnet/tx/${payment.transactionHash}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-muted-foreground hover:text-[var(--color-primary-default)] p-1.5 rounded-lg border border-[var(--color-border-muted)] hover:border-[var(--color-primary-default)] bg-[var(--color-background-default)] shadow-sm hover:shadow transition-all"

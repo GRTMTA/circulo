@@ -3,6 +3,7 @@ import {
   BASE_FEE,
   Contract,
   FeeBumpTransaction,
+  humanizeEvents,
   StrKey,
   TransactionBuilder,
   nativeToScVal,
@@ -539,6 +540,32 @@ export async function verifyContributeTransaction(
     invokedToken !== tokenContractId
   ) {
     throw new Error("The collateral transaction does not match this agreement.");
+  }
+
+  if (amount !== undefined) {
+    const expectedAmount = BigInt(amount);
+    if (expectedAmount < BigInt(0)) {
+      throw new Error("The expected token amount is invalid.");
+    }
+
+    if (expectedAmount > BigInt(0)) {
+      const transferEvents = result.events.contractEventsXdr
+        .flat()
+        .flatMap((event) => humanizeEvents([event]))
+        .filter((event) => event.contractId === tokenContractId && event.topics[0] === "transfer");
+      const matchingTransfer = transferEvents.find(
+        (event) =>
+          event.topics[1] === memberAddress &&
+          event.topics[2] === contractAddress &&
+          BigInt(event.data) === expectedAmount,
+      );
+
+      if (!matchingTransfer) {
+        throw new Error(
+          "The confirmed transaction did not transfer the required collateral or contribution amount into escrow.",
+        );
+      }
+    }
   }
 
   return { hash: result.txHash };

@@ -1,11 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, WalletCards, ArrowUpRight } from "lucide-react";
+import { Loader2, WalletCards, ArrowUpRight, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { StellarWalletsKit } from "@/config/stellar";
 import { env, getTokenContractId } from "@/lib/env";
 import {
@@ -32,12 +40,14 @@ export function WalletPayButton({
   amount,
   asset,
   dueDate,
+  roundNumber,
   status,
 }: {
   circleId: string;
   amount: number;
   asset: string;
   dueDate: string | null;
+  roundNumber?: number;
   status: "idle" | "paying" | "verifying" | "paid";
 }) {
   const { address, getAssetBalance, hasTrustline, refresh } = useWallet();
@@ -45,6 +55,7 @@ export function WalletPayButton({
     status === "paid" ? "paid" : "idle"
   );
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
 
   const balance = getAssetBalance(asset);
   const missingTrustline = Boolean(address && !hasTrustline(asset));
@@ -88,6 +99,7 @@ export function WalletPayButton({
 
       setTxHash(hash);
       setPaymentStatus("paid");
+      setConfirmationOpen(true);
       toast.success("Testnet contribution confirmed.");
       refresh();
     } catch (error) {
@@ -97,6 +109,7 @@ export function WalletPayButton({
           if (recorded.success) {
             setTxHash(error.txHash);
             setPaymentStatus("paid");
+            setConfirmationOpen(true);
             toast.success("This contribution was already paid and has been synced.");
             refresh();
             return;
@@ -158,6 +171,32 @@ export function WalletPayButton({
           </a>
         ) : null}
       </CardContent>
+      <Dialog open={confirmationOpen} onOpenChange={setConfirmationOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+              <CheckCircle2 className="size-7" />
+            </div>
+            <DialogTitle className="text-center">Contribution confirmed</DialogTitle>
+            <DialogDescription className="text-center">
+              Your payment was transferred into the circle escrow on Stellar Testnet.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 rounded-xl border border-border bg-muted/30 p-4 text-sm">
+            <div className="flex items-center justify-between gap-4"><span className="text-muted-foreground">Amount</span><strong>{amount} {asset}</strong></div>
+            <div className="flex items-center justify-between gap-4"><span className="text-muted-foreground">Target round</span><strong>Round {roundNumber ?? "current"}</strong></div>
+            <div className="flex items-center justify-between gap-4"><span className="text-muted-foreground">Status</span><strong className="text-emerald-700">Confirmed</strong></div>
+          </div>
+          {txHash ? (
+            <a href={explorerTxUrl(txHash)} target="_blank" rel="noopener noreferrer" className="text-center text-sm text-primary underline-offset-4 hover:underline">
+              View confirmed transaction on Stellar Expert
+            </a>
+          ) : null}
+          <DialogFooter>
+            <Button onClick={() => setConfirmationOpen(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

@@ -7,13 +7,16 @@ import { StrKey } from "@stellar/stellar-sdk";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { requireAuthenticatedUser } from "@/lib/auth";
 import { getTokenContractId, env } from "@/lib/env";
+import { stellarAmountToBaseUnits } from "@/lib/stellar-amount";
 import { isValidIanaTimeZone } from "@/lib/time-zone";
 import { verifyContributeTransaction } from "@/services/contractService";
+import { verifyDissolutionTransaction } from "@/services/dissolutionService";
 import {
   isValidStellarPublicKey,
   validateBasics,
   validateCollateral,
   validateRoster,
+  calculateCollateral,
   MIN_CYCLE_MEMBERS,
 } from "@/lib/create/validation";
 
@@ -497,7 +500,7 @@ export async function acceptAgreementAction(
   const supabase = await createServerSupabaseClient();
   const { data: member } = await supabase
     .from("circle_members")
-    .select("id, invite_status, wallet_address, circles(collateral_amount, contribution_asset)")
+    .select("id, invite_status, wallet_address, payout_round, circles(member_count, cycle_count, contribution_amount, contribution_asset)")
     .eq("circle_id", circleId)
     .eq("profile_id", authContext.user.id)
     .eq("role", "member")
@@ -517,9 +520,15 @@ export async function acceptAgreementAction(
 
   try {
     const tokenContractId = getTokenContractId(circle.contribution_asset);
-    const amount = BigInt(
-      Math.round(Number(circle.collateral_amount) * 10_000_000)
+    const collateralAmount = calculateCollateral(
+      Number(circle.member_count),
+      Number(circle.contribution_amount),
+      Number(member.payout_round),
+      Number(circle.cycle_count ?? 1),
     );
+    const amount = collateralAmount === 0
+      ? "0"
+      : stellarAmountToBaseUnits(collateralAmount).toString();
     await verifyContributeTransaction(
       txHash,
       member.wallet_address,
@@ -568,7 +577,7 @@ export async function confirmCreatorCollateralAction(circleId: string, txHash: s
   const supabase = await createServerSupabaseClient();
   const { data: member } = await supabase
     .from("circle_members")
-    .select("id, wallet_address, collateral_status, circles(contribution_asset)")
+    .select("id, wallet_address, payout_round, collateral_status, circles(member_count, cycle_count, contribution_amount, contribution_asset)")
     .eq("circle_id", circleId)
     .eq("profile_id", authContext.user.id)
     .eq("role", "creator")
@@ -586,13 +595,21 @@ export async function confirmCreatorCollateralAction(circleId: string, txHash: s
     return { success: false, error: "Circle configuration was not found." };
   }
 
+  const collateralAmount = calculateCollateral(
+    Number(circle.member_count),
+    Number(circle.contribution_amount),
+    Number(member.payout_round),
+    Number(circle.cycle_count ?? 1),
+  );
+
   try {
     await verifyContributeTransaction(
       txHash,
       member.wallet_address,
       env.contractId,
       circleId,
-      getTokenContractId(circle.contribution_asset)
+      getTokenContractId(circle.contribution_asset),
+      collateralAmount === 0 ? "0" : stellarAmountToBaseUnits(collateralAmount).toString(),
     );
   } catch (error) {
     return {
@@ -616,7 +633,14 @@ export async function confirmCreatorCollateralAction(circleId: string, txHash: s
     member_id: member.id,
     event_type: "collateral_posted",
     tx_hash: txHash,
-    metadata: { role: "creator" },
+    metadata: {
+      role: "creator",
+      amount: collateralAmount,
+      asset: circle.contribution_asset,
+      from_wallet: member.wallet_address,
+      to_wallet: env.contractId,
+      payer_member_id: member.id,
+    },
   });
 
   revalidatePath(`/dashboard/${circleId}`);
@@ -689,7 +713,7 @@ export async function recordContributionPaymentAction(circleId: string, txHash: 
       env.contractId,
       circleId,
       getTokenContractId(circle.contribution_asset),
-      contribution.amount_due,
+      stellarAmountToBaseUnits(contribution.amount_due).toString(),
     );
   } catch (error) {
     return {
@@ -736,6 +760,11 @@ export async function recordContributionPaymentAction(circleId: string, txHash: 
     metadata: {
       amount: Number(contribution.amount_due),
       asset: circle.contribution_asset,
+      from_wallet: member.wallet_address,
+      to_wallet: env.contractId,
+      payer_member_id: member.id,
+      contribution_id: contribution.id,
+      round_id: round.id,
       due_at: round.due_at,
       paid_at: paidAt,
       status: "paid",
@@ -1057,7 +1086,7 @@ export async function recordCollateralSlashAction(
 
   const { data: member } = await supabase
     .from("circle_members")
-    .select("id, slashed_amount")
+    .select("id, slashed_amount, display_name, wallet_address")
     .eq("id", memberId)
     .eq("circle_id", circleId)
     .maybeSingle();
@@ -1085,7 +1114,14 @@ export async function recordCollateralSlashAction(
     member_id: member.id,
     event_type: "collateral_slashed",
     tx_hash: txHash,
-    metadata: { slashed_amount: slashedAmount },
+    metadata: {
+      slashed_amount: slashedAmount,
+      amount: slashedAmount,
+      member_name: member.display_name,
+      member_wallet: member.wallet_address,
+      source: "member_collateral_escrow",
+      attribution: `Collateral applied for ${member.display_name}`,
+    },
   });
 
   revalidatePath(`/dashboard/${circleId}`);
@@ -1111,7 +1147,7 @@ export async function recordRoundPayoutAction(
 
   const { data: circle } = await supabase
     .from("circles")
-    .select("id, creator_id, status, current_round, total_rounds")
+    .select("id, creator_id, status, current_round, total_rounds, member_count, contribution_amount, contribution_asset")
     .eq("id", circleId)
     .single();
 
@@ -1121,6 +1157,20 @@ export async function recordRoundPayoutAction(
   if (circle.status !== "active") {
     return { success: false, error: "Payouts can only be recorded on an active circle." };
   }
+
+  const { data: recipient } = await supabase
+    .from("circle_members")
+    .select("id, display_name, wallet_address")
+    .eq("id", recipientMemberId)
+    .eq("circle_id", circleId)
+    .maybeSingle();
+  const { data: creatorMemberForPayout } = await supabase
+    .from("circle_members")
+    .select("wallet_address")
+    .eq("circle_id", circleId)
+    .eq("role", "creator")
+    .maybeSingle();
+  if (!recipient) return { success: false, error: "Payout recipient was not found." };
 
   const round = circle.current_round;
   const isFinalRound = round >= circle.total_rounds;
@@ -1160,7 +1210,17 @@ export async function recordRoundPayoutAction(
     event_type: isFinalRound ? "circle_completed" : "payout_released",
     round_number: round,
     tx_hash: txHash,
-    metadata: { round },
+    metadata: {
+      round,
+      amount: Number(circle.contribution_amount) * Number(circle.member_count ?? 0),
+      asset: circle.contribution_asset,
+      from_wallet: env.contractId,
+      to_wallet: recipient.wallet_address,
+      recipient_member_id: recipient.id,
+      recipient_name: recipient.display_name,
+      initiated_by: creatorMemberForPayout?.wallet_address ?? null,
+      payout_round: round,
+    },
   });
 
   revalidatePath(`/dashboard/${circleId}`);
@@ -1210,57 +1270,276 @@ export async function markAllNotificationsReadAction() {
   return { success: true };
 }
 
-export async function proposeDeleteCircleAction(circleId: string, memberId: string) {
+export async function proposeDeleteCircleAction(circleId: string, memberId: string, txHash: string) {
   const authContext = await requireAuthenticatedUser("/dashboard");
   if (!authContext.configured || !authContext.user) {
     return { success: false, error: "Not authenticated" };
   }
 
   const supabase = await createServerSupabaseClient();
-  
-  // Create an audit event for the proposal
+  const { data: member } = await supabase
+    .from("circle_members")
+    .select("id, profile_id, role, wallet_address")
+    .eq("id", memberId)
+    .eq("circle_id", circleId)
+    .single();
+
+  if (!member || member.profile_id !== authContext.user.id) {
+    return { success: false, error: "You are not a member of this circle." };
+  }
+  if (member.role !== "creator") {
+    return { success: false, error: "Only the circle creator can open a dissolution proposal." };
+  }
+
+  const { data: circle } = await supabase
+    .from("circles")
+    .select("status")
+    .eq("id", circleId)
+    .maybeSingle();
+  if (!circle || circle.status !== "active") {
+    return { success: false, error: "Only an active circle can be dissolved." };
+  }
+
+  try {
+    await verifyDissolutionTransaction(
+      txHash,
+      member.wallet_address,
+      env.contractId,
+      circleId,
+      "proposal",
+    );
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Dissolution proposal verification failed." };
+  }
+
+  const { data: existingProposals } = await supabase
+    .from("audit_events")
+    .select("id, metadata")
+    .eq("circle_id", circleId)
+    .eq("event_type", "delete_proposed");
+  const activeProposal = existingProposals?.find(
+    (proposal) => (proposal.metadata as Record<string, unknown>)?.status === "pending",
+  );
+  if (activeProposal) {
+    return { success: false, error: "A dissolution proposal is already active." };
+  }
+
   const { error } = await supabase.from("audit_events").insert({
     circle_id: circleId,
     member_id: memberId,
     event_type: "delete_proposed",
-    metadata: { status: "pending" },
+    tx_hash: txHash,
+    metadata: {
+      status: "pending",
+      actor_address: member.wallet_address,
+      proposer_member_id: memberId,
+      proposal_tx_hash: txHash,
+    },
   });
-
-  if (error) {
-    return { success: false, error: error.message };
-  }
-
-  // Also auto-vote for the proposer
-  await supabase.from("audit_events").insert({
-    circle_id: circleId,
-    member_id: memberId,
-    event_type: "delete_voted",
-    metadata: { vote: "approve" },
-  });
+  if (error) return { success: false, error: error.message };
 
   revalidatePath(`/dashboard/${circleId}`);
+  revalidatePath("/dashboard", "layout");
   return { success: true };
 }
 
-export async function voteDeleteCircleAction(circleId: string, memberId: string, vote: "approve" | "reject") {
+export async function voteDeleteCircleAction(
+  circleId: string,
+  memberId: string,
+  vote: "approve" | "reject",
+  txHash: string,
+) {
   const authContext = await requireAuthenticatedUser("/dashboard");
   if (!authContext.configured || !authContext.user) {
     return { success: false, error: "Not authenticated" };
   }
 
   const supabase = await createServerSupabaseClient();
-  
+  const { data: member } = await supabase
+    .from("circle_members")
+    .select("id, profile_id, wallet_address, display_name")
+    .eq("id", memberId)
+    .eq("circle_id", circleId)
+    .single();
+  if (!member || member.profile_id !== authContext.user.id) {
+    return { success: false, error: "You are not a member of this circle." };
+  }
+
+  const { data: proposals } = await supabase
+    .from("audit_events")
+    .select("id, metadata")
+    .eq("circle_id", circleId)
+    .eq("event_type", "delete_proposed");
+  const activeProposal = proposals?.find(
+    (proposal) => (proposal.metadata as Record<string, unknown>)?.status === "pending",
+  );
+  if (!activeProposal) return { success: false, error: "No active dissolution proposal to vote on." };
+
+  const { data: existingVotes } = await supabase
+    .from("audit_events")
+    .select("id, member_id, metadata")
+    .eq("circle_id", circleId)
+    .eq("event_type", "delete_voted");
+  const proposalVotes = (existingVotes ?? []).filter(
+    (event) => (event.metadata as Record<string, unknown>)?.proposal_id === activeProposal.id,
+  );
+  if (proposalVotes.some((event) => event.member_id === memberId)) {
+    return { success: false, error: "You have already voted on this proposal." };
+  }
+
+  try {
+    await verifyDissolutionTransaction(
+      txHash,
+      member.wallet_address,
+      env.contractId,
+      circleId,
+      "vote",
+      vote === "approve",
+    );
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Dissolution vote verification failed." };
+  }
+
   const { error } = await supabase.from("audit_events").insert({
     circle_id: circleId,
     member_id: memberId,
     event_type: "delete_voted",
-    metadata: { vote },
+    tx_hash: txHash,
+    metadata: {
+      vote,
+      proposal_id: activeProposal.id,
+      actor_address: member.wallet_address,
+      voter_member_id: memberId,
+    },
   });
+  if (error) return { success: false, error: error.message };
+
+  if (vote === "reject") {
+    const { error: rejectionError } = await supabase.rpc("reject_circle_dissolution", {
+      target_circle_id: circleId,
+      proposal_event_id: activeProposal.id,
+      rejecting_member_id: memberId,
+      rejection_transaction_hash: txHash,
+    });
+    if (rejectionError) return { success: false, error: rejectionError.message };
+    revalidatePath(`/dashboard/${circleId}`);
+    return { success: true, outcome: "rejected" as const };
+  }
+
+  const { data: allMembers } = await supabase
+    .from("circle_members")
+    .select("id, display_name, wallet_address, payout_round, slashed_amount")
+    .eq("circle_id", circleId)
+    .order("payout_round", { ascending: true });
+  const totalMembers = allMembers?.length ?? 0;
+  const approveVotes = proposalVotes.filter(
+    (event) => (event.metadata as Record<string, unknown>)?.vote === "approve",
+  ).length + 1;
+
+  if (approveVotes >= totalMembers && totalMembers > 0) {
+    const { data: circle } = await supabase
+      .from("circles")
+      .select("contribution_amount, contribution_asset, cycle_count, member_count, current_round")
+      .eq("id", circleId)
+      .maybeSingle();
+    if (!circle) return { success: false, error: "Circle configuration was not found." };
+
+    const { error: settlementError } = await supabase.rpc("finalize_circle_dissolution", {
+      target_circle_id: circleId,
+      proposal_event_id: activeProposal.id,
+      settlement_transaction_hash: txHash,
+    });
+    if (settlementError) return { success: false, error: settlementError.message };
+
+    const refundEvents = (allMembers ?? []).map((recipient) => {
+      const baseCollateral = calculateCollateral(
+        Number(circle.member_count),
+        Number(circle.contribution_amount),
+        Number(recipient.payout_round),
+        Number(circle.cycle_count ?? 1),
+      );
+      const amount = Math.max(0, baseCollateral - Number(recipient.slashed_amount ?? 0));
+      return {
+        circle_id: circleId,
+        member_id: recipient.id,
+        event_type: "collateral_refunded",
+        tx_hash: txHash,
+        metadata: {
+          amount,
+          asset: circle.contribution_asset,
+          from_wallet: env.contractId,
+          to_wallet: recipient.wallet_address,
+          recipient_member_id: recipient.id,
+          recipient_name: recipient.display_name,
+          settlement: "unanimous_dissolution",
+          settlement_tx_hash: txHash,
+          attribution: `Escrow settlement to ${recipient.display_name}`,
+        },
+      };
+    });
+    await supabase.from("audit_events").insert([
+      {
+        circle_id: circleId,
+        member_id: memberId,
+        event_type: "circle_cancelled",
+        tx_hash: txHash,
+        metadata: {
+          reason: "unanimous_dissolution",
+          actor_address: member.wallet_address,
+          settlement_tx_hash: txHash,
+          settlement: "fair_collateral_distribution",
+        },
+      },
+      ...refundEvents,
+    ]);
+
+    revalidatePath("/dashboard", "layout");
+    revalidatePath(`/dashboard/${circleId}`);
+    return { success: true, outcome: "dissolved" as const };
+  }
+
+  revalidatePath(`/dashboard/${circleId}`);
+  return { success: true, outcome: "pending" as const };
+}
+
+export async function leaveCancelledCircleAction(circleId: string, memberId: string) {
+  const authContext = await requireAuthenticatedUser("/dashboard");
+  if (!authContext.configured || !authContext.user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const supabase = await createServerSupabaseClient();
+
+  // Verify the member belongs to this circle and status is cancelled
+  const { data: member } = await supabase
+    .from("circle_members")
+    .select("id, profile_id, circles(status)")
+    .eq("id", memberId)
+    .eq("circle_id", circleId)
+    .single();
+
+  if (!member || member.profile_id !== authContext.user.id) {
+    return { success: false, error: "You are not a member of this circle." };
+  }
+
+  const linkedCircle = Array.isArray(member.circles) ? member.circles[0] : member.circles;
+  const circleStatus = linkedCircle && typeof linkedCircle === "object" && "status" in linkedCircle
+    ? linkedCircle.status
+    : undefined;
+  if (circleStatus !== "cancelled") {
+    return { success: false, error: "You can only leave cancelled circles." };
+  }
+
+  // Delete the membership record
+  const { error } = await supabase
+    .from("circle_members")
+    .delete()
+    .eq("id", memberId);
 
   if (error) {
     return { success: false, error: error.message };
   }
 
-  revalidatePath(`/dashboard/${circleId}`);
+  revalidatePath("/dashboard", "layout");
   return { success: true };
 }

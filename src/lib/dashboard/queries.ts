@@ -413,8 +413,13 @@ export async function getDashboardDTO(): Promise<CirclesDTO> {
   ]);
 
   return [
-    ...(creatorCircles ?? []).map(mapCreatorCircleListItem),
-    ...(memberCircleRows ?? []).map(mapMemberCircleListItem).filter(Boolean),
+    ...(creatorCircles ?? [])
+      .filter((c) => c.status !== "cancelled")
+      .map(mapCreatorCircleListItem),
+    ...(memberCircleRows ?? [])
+      .filter((m) => m.circles?.status !== "cancelled")
+      .map(mapMemberCircleListItem)
+      .filter(Boolean),
   ] as CirclesDTO;
 }
 
@@ -454,7 +459,7 @@ export async function getCircleDTO(circleId: string): Promise<CircleEnrichedDTO 
   const supabase = await createServerSupabaseClient();
   const bundle = await fetchCircleBundle(circleId);
 
-  if (!bundle) {
+  if (!bundle || bundle.circle.status === "cancelled") {
     return null;
   }
 
